@@ -1155,7 +1155,7 @@ def format_tool_args(args, max_length=80) -> str:
         return result[:max_length - 3] + "..."
     return result
 
-def run_analysis():
+def run_analysis(quick: bool = False):
     # First get all user selections
     """
     执行分析流程。
@@ -1170,6 +1170,10 @@ def run_analysis():
     config["max_debate_rounds"] = selections["research_depth"]
     config["max_risk_discuss_rounds"] = selections["research_depth"]
     config["research_depth"] = selections["research_depth"]
+    if quick:
+        config["max_debate_rounds"] = 1
+        config["max_risk_discuss_rounds"] = 1
+        config["research_depth"] = 1
     config["selected_analysts"] = [analyst.value for analyst in selections["analysts"]]
     config["quick_think_llm"] = selections["shallow_thinker"]
     config["deep_think_llm"] = selections["deep_thinker"]
@@ -1334,6 +1338,11 @@ def run_analysis():
             "System",
             f"Selected analysts: {', '.join(analyst.value for analyst in selections['analysts'])}",
         )
+        if quick:
+            message_buffer.add_message(
+                "System",
+                "Quick mode enabled: debate rounds and risk discussion rounds are both forced to 1.",
+            )
         update_display(layout, stats_handler=stats_handler, start_time=start_time)
 
         # 将首位分析师状态更新为 in_progress
@@ -1477,6 +1486,7 @@ def run_analysis():
             report_file = save_report_to_disk(final_state, selections["ticker"], save_path)
             console.print(f"\n[green]✓ Report saved to:[/green] {save_path.resolve()}")
             console.print(f"  [dim]Complete report:[/dim] {report_file.name}")
+            console.print(f"  [dim]PDF report:[/dim] {report_file.with_suffix('.pdf').name}")
         except Exception as e:
             console.print(f"[red]Error saving report: {e}[/red]")
 
@@ -1487,14 +1497,20 @@ def run_analysis():
 
 
 @app.command()
-def analyze():
+def analyze(
+    quick: bool = typer.Option(
+        False,
+        "--quick",
+        help="Enable quick mode: force max_debate_rounds=1 and max_risk_discuss_rounds=1.",
+    ),
+):
     """
     执行分析命令。
     
     返回：
         None: 无返回值。
     """
-    run_analysis()
+    run_analysis(quick=quick)
 
 
 if __name__ == "__main__":

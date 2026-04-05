@@ -182,12 +182,14 @@ reports/600570_20260406_011703/
 │   └── trader_investment_plan_report.md
 ├── 4_portfolio
 │   └── final_trade_decision_report.md
+├── complete_report.pdf
 └── complete_report.md
 ```
 
 其中：
 
 - `complete_report.md` 是聚合后的总报告，适合直接给人看。
+- `complete_report.pdf` 是和 `complete_report.md` 同内容的 PDF 版本，适合归档、传阅和外部系统挂载。
 - `4_portfolio/final_trade_decision_report.md` 是最接近“最终结论”的文件，适合下游系统抓取。
 
 ## 5. 代码调用方式
@@ -216,12 +218,14 @@ result = platform.run_agent(
     AgentRunRequest(
         symbol="600570",
         trade_date="2026-04-03",
+        context={"quick_mode": True},
     ),
 )
 
 print(result.decision.action.value)
 print(result.decision.rationale)
 print(result.outputs["report_file"])
+print(result.outputs["report_pdf_file"])
 print(result.outputs["report_dir"])
 ```
 
@@ -251,6 +255,7 @@ def analyze_stock(symbol: str, trade_date: str) -> dict:
             trade_date=trade_date,
             context={
                 "persist_report": True,
+                "quick_mode": True,
             },
         ),
     )
@@ -261,6 +266,7 @@ def analyze_stock(symbol: str, trade_date: str) -> dict:
         "action": result.decision.action.value,
         "rationale": result.decision.rationale,
         "report_file": result.outputs.get("report_file"),
+        "report_pdf_file": result.outputs.get("report_pdf_file"),
         "report_dir": result.outputs.get("report_dir"),
         "raw_signal": result.outputs.get("raw_signal"),
     }
@@ -322,6 +328,7 @@ result = platform.run_agent(
 | 字段 | 类型 | 默认值 | 业务含义 |
 |---|---|---|---|
 | `persist_report` | `bool` | `True` | 是否将本次结果持久化为标准报告目录。 |
+| `quick_mode` | `bool` | `False` | 快速模式。强制 `max_debate_rounds=1`、`max_risk_discuss_rounds=1`。 |
 | `report_base_dir` | `str` | `config["report_output_dir"]` | 报告根目录。 |
 | `report_save_path` | `str` | `None` | 指定本次运行的精确报告目录。 |
 | `confidence` | `float` | `None` | 透传到 `decision.confidence`，便于下游系统补充置信度字段。 |
@@ -365,7 +372,9 @@ result = platform.run_agent(
 | `raw_signal` | `str` | 图层原始信号，可能是 `BUY` / `SELL` / `HOLD` / `OVERWEIGHT` / `UNDERWEIGHT`。 |
 | `final_state` | `dict[str, Any]` | LangGraph 最终状态，包含所有阶段报告。 |
 | `report_file` | `str` | `complete_report.md` 的绝对路径。 |
+| `report_pdf_file` | `str` | `complete_report.pdf` 的绝对路径。 |
 | `report_dir` | `str` | 本次报告目录的绝对路径。 |
+| `quick_mode` | `bool` | 本次运行是否启用了快速模式。 |
 
 建议下游系统把接口消费分成两层：
 

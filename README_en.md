@@ -143,8 +143,9 @@ python -m cli.main
 ## Python Usage Example
 
 ```python
-from tradingagents.graph.trading_graph import TradingAgentsGraph
+from tradingagents.agent_core.types import AgentRunRequest
 from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.platform import TradingPlatform
 
 config = DEFAULT_CONFIG.copy()
 config["llm_provider"] = "zhipu"
@@ -152,9 +153,21 @@ config["backend_url"] = "https://open.bigmodel.cn/api/coding/paas/v4"
 config["deep_think_llm"] = "GLM-5.1"
 config["quick_think_llm"] = "GLM-5.1"
 
-ta = TradingAgentsGraph(debug=True, config=config)
-_, decision = ta.propagate("600519", "2024-05-10")
-print(decision)
+platform = TradingPlatform(config=config)
+platform.register_trading_agents_agent(debug=False)
+
+result = platform.run_agent(
+    "tradingagents",
+    AgentRunRequest(
+        symbol="600570",
+        trade_date="2026-04-03",
+        context={"quick_mode": True},
+    ),
+)
+
+print(result.decision.action.value)
+print(result.outputs["report_file"])
+print(result.outputs["report_pdf_file"])
 ```
 
 ## Project Structure

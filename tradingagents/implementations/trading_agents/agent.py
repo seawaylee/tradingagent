@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from tradingagents.agent_core.base import BaseAgent
@@ -38,6 +39,7 @@ class TradingAgentsAgent(BaseAgent):
         self.debug = debug
         self.config = config
         self._graph = None
+        self._graph_signature = None
 
     def run(self, request: AgentRunRequest, context: AgentExecutionContext) -> AgentRunResult:
         """
@@ -50,15 +52,18 @@ class TradingAgentsAgent(BaseAgent):
         返回：
             AgentRunResult: 标准化后的 Agent 结果。
         """
-        graph = self._get_graph(context)
+        runtime_config = self._build_runtime_config(request, context)
+        graph = self._get_graph(runtime_config)
         final_state, raw_signal = graph.propagate(request.symbol, request.trade_date)
         action = self._normalize_action(raw_signal)
         report_file = self._persist_report(final_state, request, context)
+        quick_mode = bool(request.context.get("quick_mode", False))
         report_metadata = {}
         if report_file is not None:
             report_metadata = {
                 "report_file": str(report_file),
                 "report_dir": str(report_file.parent),
+                "report_pdf_file": str(report_file.with_suffix(".pdf")),
             }
 
         decision = AgentDecision(
@@ -74,6 +79,7 @@ class TradingAgentsAgent(BaseAgent):
             metadata={
                 "raw_signal": raw_signal,
                 "selected_analysts": list(self.selected_analysts),
+                "quick_mode": quick_mode,
                 **report_metadata,
             },
         )
@@ -83,32 +89,68 @@ class TradingAgentsAgent(BaseAgent):
             outputs={
                 "raw_signal": raw_signal,
                 "final_state": final_state,
+                "quick_mode": quick_mode,
                 **report_metadata,
             },
         )
 
-    def _get_graph(self, context: AgentExecutionContext):
+    def _get_graph(self, runtime_config: dict[str, Any]):
         """
-        延迟构建旧版 TradingAgents 图实例。
+        延迟构建旧版 TradingAgents 图实例，并根据运行参数重建缓存。
 
         参数：
-            context: Agent 运行上下文。
+            runtime_config: 本次运行的有效配置。
 
         返回：
             Any: 旧版图对象实例。
         """
-        if self._graph is None:
+        graph_signature = json.dumps(
+            {
+                "selected_analysts": self.selected_analysts,
+                "debug": self.debug,
+                "config": runtime_config,
+            },
+            sort_keys=True,
+            ensure_ascii=False,
+            default=str,
+        )
+
+        if self._graph is None or self._graph_signature != graph_signature:
             from tradingagents.graph.trading_graph import TradingAgentsGraph
 
-            runtime_config = context.config.copy()
-            if self.config:
-                runtime_config.update(self.config)
             self._graph = TradingAgentsGraph(
                 selected_analysts=self.selected_analysts,
                 debug=self.debug,
                 config=runtime_config,
             )
+            self._graph_signature = graph_signature
         return self._graph
+
+    def _build_runtime_config(
+        self,
+        request: AgentRunRequest,
+        context: AgentExecutionContext,
+    ) -> dict[str, Any]:
+        """
+        构建本次请求的有效运行配置。
+
+        参数：
+            request: Agent 输入请求。
+            context: Agent 运行上下文。
+
+        返回：
+            dict[str, Any]: 合并并覆盖后的运行配置。
+        """
+        runtime_config = context.config.copy()
+        if self.config:
+            runtime_config.update(self.config)
+
+        if request.context.get("quick_mode", False):
+            runtime_config["max_debate_rounds"] = 1
+            runtime_config["max_risk_discuss_rounds"] = 1
+            runtime_config["research_depth"] = 1
+
+        return runtime_config
 
     def _normalize_action(self, raw_signal: str) -> DecisionAction:
         """

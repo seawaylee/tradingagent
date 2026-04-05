@@ -30,10 +30,15 @@ platform.register_trading_agents_agent(debug=True)
 # 独立运行某个 Agent
 result = platform.run_agent(
     "tradingagents",
-    AgentRunRequest(symbol="600570", trade_date="2026-04-03"),
+    AgentRunRequest(
+        symbol="600570",
+        trade_date="2026-04-03",
+        context={"quick_mode": True},
+    ),
 )
 print(result.decision.action.value)
 print(result.outputs.get("report_file", ""))
+print(result.outputs.get("report_pdf_file", ""))
 
 # 对历史得失进行记忆与反思
 # 如果需要，可继续使用旧图对象暴露的反思能力

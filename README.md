@@ -175,11 +175,16 @@ platform.register_trading_agents_agent(debug=False)
 
 result = platform.run_agent(
     "tradingagents",
-    AgentRunRequest(symbol="600570", trade_date="2026-04-03"),
+    AgentRunRequest(
+        symbol="600570",
+        trade_date="2026-04-03",
+        context={"quick_mode": True},
+    ),
 )
 
 print(result.decision.action.value)
 print(result.outputs["report_file"])
+print(result.outputs["report_pdf_file"])
 ```
 
 ## 项目结构
