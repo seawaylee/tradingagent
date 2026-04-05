@@ -1,0 +1,16 @@
+{
+  "tool_name": "get_company_announcements",
+  "params": {
+    "category": "全部",
+    "end_date": "2026-04-03",
+    "start_date": "2026-03-01",
+    "ticker": "600570"
+  },
+  "payload_file": "payload.txt",
+  "payload_format": "text",
+  "created_at": "2026-04-05T16:18:24.690927",
+  "metadata": {
+    "description": "A 股公司公告工具",
+    "namespace": "a_share"
+  }
+}

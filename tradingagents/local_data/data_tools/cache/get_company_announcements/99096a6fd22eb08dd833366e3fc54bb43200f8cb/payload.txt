@@ -1,0 +1,12 @@
+# A-share company announcements for 600519.SH
+
+公告日期,公告类型,公告标题,网址
+2024-05-09,高管人员任职变动,贵州茅台:贵州茅台第四届董事会2024年度第五次会议决议公告,https://data.eastmoney.com/notices/detail/600519/AN202405081632675480.html
+2024-05-09,召开股东大会通知,贵州茅台:贵州茅台关于召开2023年度股东大会的通知,https://data.eastmoney.com/notices/detail/600519/AN202405081632675481.html
+2024-05-01,高管人员任职变动,贵州茅台:贵州茅台关于董事长辞职的公告,https://data.eastmoney.com/notices/detail/600519/AN202404301632069441.html
+2024-04-30,其他,贵州茅台:贵州茅台关于收到推荐董事长人选文件的公告,https://data.eastmoney.com/notices/detail/600519/AN202404291631673103.html
+2024-04-27,一季度报告全文,贵州茅台:贵州茅台2024年第一季度报告,https://data.eastmoney.com/notices/detail/600519/AN202404261631429095.html
+2024-04-27,监事会决议公告,贵州茅台:贵州茅台第四届监事会2024年度第二次会议决议公告,https://data.eastmoney.com/notices/detail/600519/AN202404261631429094.html
+2024-04-27,其他,贵州茅台:贵州茅台关于召开2023年度及2024年第一季度业绩说明会的公告,https://data.eastmoney.com/notices/detail/600519/AN202404261631429093.html
+2024-04-27,董事会决议公告,贵州茅台:贵州茅台第四届董事会2024年度第四次会议决议公告,https://data.eastmoney.com/notices/detail/600519/AN202404261631429092.html
+2024-04-27,关联交易,贵州茅台:贵州茅台关于贵州茅台集团财务有限公司日常关联交易的公告,https://data.eastmoney.com/notices/detail/600519/AN202404261631429091.html

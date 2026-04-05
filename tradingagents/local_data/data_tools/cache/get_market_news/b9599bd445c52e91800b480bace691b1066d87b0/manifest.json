@@ -1,0 +1,15 @@
+{
+  "tool_name": "get_market_news",
+  "params": {
+    "curr_date": "2024-05-10",
+    "limit": 15,
+    "look_back_days": 30
+  },
+  "payload_file": "payload.txt",
+  "payload_format": "text",
+  "created_at": "2026-04-05T16:04:00.188148",
+  "metadata": {
+    "description": "A 股市场新闻工具",
+    "namespace": "a_share"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "tool_name": "get_fundamentals",
+  "params": {
+    "curr_date": "2026-04-03",
+    "ticker": "600570"
+  },
+  "payload_file": "payload.txt",
+  "payload_format": "text",
+  "created_at": "2026-04-05T16:17:58.740263",
+  "metadata": {
+    "description": "A 股综合基本面工具",
+    "namespace": "a_share"
+  }
+}

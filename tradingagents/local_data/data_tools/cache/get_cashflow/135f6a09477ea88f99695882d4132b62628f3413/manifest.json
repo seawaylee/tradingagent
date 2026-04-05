@@ -1,0 +1,15 @@
+{
+  "tool_name": "get_cashflow",
+  "params": {
+    "curr_date": "2024-05-10",
+    "freq": "quarterly",
+    "ticker": "600519"
+  },
+  "payload_file": "payload.txt",
+  "payload_format": "text",
+  "created_at": "2026-04-05T16:06:36.718220",
+  "metadata": {
+    "description": "A 股现金流量表工具",
+    "namespace": "a_share"
+  }
+}
