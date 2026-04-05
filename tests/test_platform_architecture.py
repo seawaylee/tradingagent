@@ -129,6 +129,7 @@ class PlatformArchitectureTest(unittest.TestCase):
                 "market_data_dir": str(Path(temp_dir) / "market_tools"),
                 "agent_output_dir": str(Path(temp_dir) / "agents"),
                 "backtest_output_dir": str(Path(temp_dir) / "backtests"),
+                "report_output_dir": str(Path(temp_dir) / "reports"),
                 "data_cache_dir": str(Path(temp_dir) / "legacy_cache"),
             }
             platform = TradingPlatform(config=config)

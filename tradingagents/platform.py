@@ -175,6 +175,7 @@ class TradingPlatform:
             "market_data_dir",
             "agent_output_dir",
             "backtest_output_dir",
+            "report_output_dir",
             "data_cache_dir",
         ]:
             from pathlib import Path

@@ -24,6 +24,7 @@
   <a href="#角色协作图谱引用上游图片">角色图谱</a> ·
   <a href="#和历史版本的关键差异">版本差异</a> ·
   <a href="#快速开始">快速开始</a> ·
+  <a href="#接入文档">接入文档</a> ·
   <a href="#开源合规说明">开源合规</a>
 </p>
 
@@ -46,7 +47,7 @@
 
 - A 股数据链路：默认 AkShare，覆盖行情、新闻、公告、基本面相关工具。
 - 多 Agent 决策闭环：分析师、研究员、交易员、风控与组合管理分工协作。
-- 多模型提供方统一接入：OpenAI、Azure OpenAI、Anthropic、Google、xAI、OpenRouter、Ollama。
+- 多模型提供方统一接入：OpenAI、Azure OpenAI、Anthropic、Google、xAI、OpenRouter、Ollama、智谱 Zhipu。
 - CLI 开箱即用：可直接选择标的、交易日期、分析师与模型组合。
 - 研究导向的输出：强调过程透明和可复盘，不做黑盒策略包装。
 
@@ -129,6 +130,7 @@ export GOOGLE_API_KEY=...
 export ANTHROPIC_API_KEY=...
 export XAI_API_KEY=...
 export OPENROUTER_API_KEY=...
+export ZAI_API_KEY=...
 ```
 
 ### 3) 启动 CLI
@@ -139,20 +141,45 @@ tradingagents
 python -m cli.main
 ```
 
+## 接入文档
+
+详细使用与接入说明见：
+
+- [docs/integration.md](./docs/integration.md)
+
+文档包含：
+
+- CLI 交互式运行方式
+- Python 代码接入方式
+- 输入输出契约
+- 报告目录结构和业务意义
+- 下游系统接入建议
+
 ## Python 调用示例
 
+推荐下游项目使用平台接口，而不是直接依赖底层图对象。
+
 ```python
-from tradingagents.graph.trading_graph import TradingAgentsGraph
+from tradingagents.agent_core.types import AgentRunRequest
 from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.platform import TradingPlatform
 
 config = DEFAULT_CONFIG.copy()
-config["llm_provider"] = "openai"
-config["deep_think_llm"] = "gpt-5.4"
-config["quick_think_llm"] = "gpt-5.4-mini"
+config["llm_provider"] = "zhipu"
+config["backend_url"] = "https://open.bigmodel.cn/api/coding/paas/v4"
+config["deep_think_llm"] = "GLM-5.1"
+config["quick_think_llm"] = "GLM-5.1"
 
-ta = TradingAgentsGraph(debug=True, config=config)
-_, decision = ta.propagate("600519", "2024-05-10")
-print(decision)
+platform = TradingPlatform(config=config)
+platform.register_trading_agents_agent(debug=False)
+
+result = platform.run_agent(
+    "tradingagents",
+    AgentRunRequest(symbol="600570", trade_date="2026-04-03"),
+)
+
+print(result.decision.action.value)
+print(result.outputs["report_file"])
 ```
 
 ## 项目结构

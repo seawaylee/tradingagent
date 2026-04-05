@@ -8,6 +8,7 @@ from tradingagents.agent_core.types import (
     AgentRunResult,
     DecisionAction,
 )
+from tradingagents.reporting import persist_report
 
 
 class TradingAgentsAgent(BaseAgent):
@@ -52,6 +53,13 @@ class TradingAgentsAgent(BaseAgent):
         graph = self._get_graph(context)
         final_state, raw_signal = graph.propagate(request.symbol, request.trade_date)
         action = self._normalize_action(raw_signal)
+        report_file = self._persist_report(final_state, request, context)
+        report_metadata = {}
+        if report_file is not None:
+            report_metadata = {
+                "report_file": str(report_file),
+                "report_dir": str(report_file.parent),
+            }
 
         decision = AgentDecision(
             agent_name=self.name,
@@ -66,6 +74,7 @@ class TradingAgentsAgent(BaseAgent):
             metadata={
                 "raw_signal": raw_signal,
                 "selected_analysts": list(self.selected_analysts),
+                **report_metadata,
             },
         )
         return AgentRunResult(
@@ -74,6 +83,7 @@ class TradingAgentsAgent(BaseAgent):
             outputs={
                 "raw_signal": raw_signal,
                 "final_state": final_state,
+                **report_metadata,
             },
         )
 
@@ -116,3 +126,32 @@ class TradingAgentsAgent(BaseAgent):
         if signal in {"SELL", "UNDERWEIGHT"}:
             return DecisionAction.SELL
         return DecisionAction.HOLD
+
+    def _persist_report(
+        self,
+        final_state: dict[str, Any],
+        request: AgentRunRequest,
+        context: AgentExecutionContext,
+    ):
+        """
+        将代码调用结果持久化为与 CLI 相同的报告目录结构。
+
+        参数：
+            final_state: 图执行后的最终状态。
+            request: Agent 输入请求。
+            context: Agent 运行上下文。
+
+        返回：
+            Path | None: 报告文件路径；若显式关闭持久化则返回 None。
+        """
+        if request.context.get("persist_report", True) is False:
+            return None
+
+        report_base_dir = request.context.get("report_base_dir") or context.config["report_output_dir"]
+        report_save_path = request.context.get("report_save_path")
+        return persist_report(
+            final_state=final_state,
+            ticker=request.symbol,
+            base_dir=report_base_dir,
+            save_path=report_save_path,
+        )

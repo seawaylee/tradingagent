@@ -744,6 +744,64 @@ def get_company_announcements(
     """
     normalized_symbol = normalize_ashare_symbol(ticker)
     plain_symbol = to_plain_symbol(ticker)
+
+    # 优先使用巨潮资讯按股票+时间区间查询的接口，避免逐日扫描公告池导致主流程过慢。
+    cninfo_category = ""
+    normalized_category = str(category or "").strip()
+    if normalized_category in {"", "全部"}:
+        cninfo_category = ""
+    else:
+        cninfo_category_map = {
+            "风险提示": "风险提示",
+            "持股变动": "股权变动",
+            "股权激励": "股权激励",
+            "公司治理": "公司治理",
+            "日常经营": "日常经营",
+            "董事会": "董事会",
+            "监事会": "监事会",
+            "股东大会": "股东大会",
+            "补充更正": "补充更正",
+            "澄清致歉": "澄清致歉",
+            "特别处理和退市": "特别处理和退市",
+        }
+        cninfo_category = cninfo_category_map.get(normalized_category, "")
+
+    if normalized_category in {"", "全部"} or cninfo_category:
+        try:
+            with _suppress_akshare_progress():
+                direct = _call_akshare_api(
+                    ak.stock_zh_a_disclosure_report_cninfo,
+                    symbol=plain_symbol,
+                    market="沪深京",
+                    category=cninfo_category,
+                    start_date=format_date_for_api(start_date),
+                    end_date=format_date_for_api(end_date),
+                    retries=2,
+                    retry_delay=0.5,
+                )
+            if not direct.empty:
+                combined = direct.rename(
+                    columns={
+                        "公告时间": "公告日期",
+                        "公告链接": "网址",
+                    }
+                ).copy()
+                combined["公告日期"] = parse_date_column(combined["公告日期"])
+                combined["公告类型"] = normalized_category or "公告"
+                combined = combined.sort_values("公告日期", ascending=False).drop_duplicates(
+                    subset=["公告标题", "公告日期"]
+                )
+                formatted = combined.loc[:, ["公告日期", "公告类型", "公告标题", "网址"]].head(20).copy()
+                formatted["公告日期"] = formatted["公告日期"].dt.strftime("%Y-%m-%d")
+                return _format_table(
+                    formatted,
+                    f"# A-share company announcements for {normalized_symbol}",
+                    rows=20,
+                )
+        except Exception:
+            # 保留原有逐日扫描逻辑作为兼容兜底。
+            pass
+
     frames = []
     errors = []
 

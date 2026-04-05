@@ -1,4 +1,7 @@
 import os
+import re
+import shlex
+from pathlib import Path
 from typing import Any, Optional
 
 from langchain_openai import ChatOpenAI
@@ -36,11 +39,51 @@ _PASSTHROUGH_KWARGS = (
 
 # 各提供方的基础地址与 API Key 环境变量
 _PROVIDER_CONFIG = {
-    "xai": ("https://api.x.ai/v1", "XAI_API_KEY"),
-    "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
-    "ollama": ("http://localhost:11434/v1", None),
-    "qwen": ("https://coding.dashscope.aliyuncs.com/v1", "QWEN_API_KEY"),
+    "xai": {"base_url": "https://api.x.ai/v1", "api_key_env": "XAI_API_KEY"},
+    "openrouter": {"base_url": "https://openrouter.ai/api/v1", "api_key_env": "OPENROUTER_API_KEY"},
+    "ollama": {"base_url": "http://localhost:11434/v1", "api_key_env": None},
+    "qwen": {"base_url": "https://coding.dashscope.aliyuncs.com/v1", "api_key_env": "QWEN_API_KEY"},
+    "zhipu": {"base_url": "https://open.bigmodel.cn/api/coding/paas/v4", "api_key_env": "ZAI_API_KEY"},
 }
+
+
+def _alias_env_var(alias_name: str, var_name: str) -> Optional[str]:
+    zshrc = Path.home() / ".zshrc"
+    if not zshrc.exists():
+        return None
+    text = zshrc.read_text(encoding="utf-8")
+    match = re.search(rf"alias\s+{re.escape(alias_name)}='([^']+)'", text)
+    if not match:
+        return None
+    parts = shlex.split(match.group(1))
+    index = 0
+    while index < len(parts):
+        part = parts[index]
+        if part == "env":
+            index += 1
+            continue
+        if part == "-u":
+            index += 2
+            continue
+        if "=" not in part:
+            break
+        key, value = part.split("=", 1)
+        if key == var_name:
+            return value
+        index += 1
+    return None
+
+
+def _resolve_zhipu_api_key() -> Optional[str]:
+    direct_value = os.environ.get("ZAI_API_KEY")
+    if direct_value:
+        return direct_value
+    for alias_name in ("cc-glm", "cc"):
+        for var_name in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"):
+            value = _alias_env_var(alias_name, var_name)
+            if value:
+                return value
+    return None
 
 
 class OpenAIClient(BaseLLMClient):
@@ -85,13 +128,16 @@ class OpenAIClient(BaseLLMClient):
 
         # 提供方专属的基础地址与鉴权参数
         if self.provider in _PROVIDER_CONFIG:
-            base_url, api_key_env = _PROVIDER_CONFIG[self.provider]
-            llm_kwargs["base_url"] = base_url
-            if api_key_env:
-                api_key = os.environ.get(api_key_env)
-                if api_key:
-                    llm_kwargs["api_key"] = api_key
+            provider_config = _PROVIDER_CONFIG[self.provider]
+            llm_kwargs["base_url"] = self.base_url or provider_config["base_url"]
+            if self.provider == "zhipu":
+                api_key = _resolve_zhipu_api_key()
             else:
+                api_key_env = provider_config["api_key_env"]
+                api_key = os.environ.get(api_key_env) if api_key_env else None
+            if api_key:
+                llm_kwargs["api_key"] = api_key
+            elif self.provider == "ollama":
                 llm_kwargs["api_key"] = "ollama"
         elif self.base_url:
             llm_kwargs["base_url"] = self.base_url

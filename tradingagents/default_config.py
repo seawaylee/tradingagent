@@ -10,6 +10,10 @@ LOCAL_DATA_DIR = os.getenv(
     "TRADINGAGENTS_LOCAL_DATA_DIR",
     os.path.join(PROJECT_DIR, "local_data"),
 )
+REPORT_OUTPUT_DIR = os.getenv(
+    "TRADINGAGENTS_REPORT_DIR",
+    os.path.abspath(os.path.join(PROJECT_DIR, "..", "reports")),
+)
 
 DEFAULT_CONFIG = {
     "project_dir": PROJECT_DIR,
@@ -24,19 +28,20 @@ DEFAULT_CONFIG = {
     "market_data_dir": os.path.join(LOCAL_DATA_DIR, "market_tools"),
     "agent_output_dir": os.path.join(LOCAL_DATA_DIR, "agents"),
     "backtest_output_dir": os.path.join(LOCAL_DATA_DIR, "backtests"),
+    "report_output_dir": REPORT_OUTPUT_DIR,
     "market_region": "cn_a",
     # LLM 配置
-    "llm_provider": "azure",
-    "deep_think_llm": "gpt-5.4",
-    "quick_think_llm": "gpt-5.4-mini",
-    "backend_url": "YOUR_AZURE_API_URL",
-    "azure_api_version": "2024-12-01-preview",
+    "llm_provider": "zhipu",
+    "deep_think_llm": "GLM-5.1",
+    "quick_think_llm": "GLM-5.1",
+    "backend_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+    "azure_api_version": None,
     "content_filter_max_retries": 2,
     "content_filter_skip_message": "Skipped due to Azure content policy filter.",
     # 不同提供方的思考参数配置
     "google_thinking_level": "high",      # 例如 "high"、"minimal"
-    "openai_reasoning_effort": "high",    # 可选 "medium"、"high"、"low"
-    "anthropic_effort": "high",           # 可选 "high"、"medium"、"low"
+    "openai_reasoning_effort": None,      # 可选 "medium"、"high"、"low"
+    "anthropic_effort": None,             # 可选 "high"、"medium"、"low"
     # 分析师报告、辩论内容与最终决策的输出语言。
     # 如存在必须保留的机器可读标记，应仅保留该标记本身的英文形式。
     "internal_language": "English",

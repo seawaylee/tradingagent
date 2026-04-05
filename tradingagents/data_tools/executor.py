@@ -1,8 +1,14 @@
+from threading import RLock
 from typing import Any
 
 from tradingagents.data_tools.registry import DataToolRegistry
 from tradingagents.data_tools.storage import LocalArtifactStore
 from tradingagents.data_tools.types import ToolExecutionResult
+
+
+# AkShare/py_mini_racer 在并发工具调用下会触发 native crash；
+# ToolNode 可能并行执行同一轮里的多个工具，因此这里串行化数据工具执行。
+_DATA_TOOL_EXECUTION_LOCK = RLock()
 
 
 class CachedDataToolExecutor:
@@ -45,72 +51,73 @@ class CachedDataToolExecutor:
         返回：
             ToolExecutionResult: 执行结果对象。
         """
-        definition = self.registry.get(tool_name)
-        cache_key = self.artifact_store.build_cache_key(tool_name, params)
-        metadata = {
-            "namespace": definition.namespace,
-            "description": definition.description,
-        }
+        with _DATA_TOOL_EXECUTION_LOCK:
+            definition = self.registry.get(tool_name)
+            cache_key = self.artifact_store.build_cache_key(tool_name, params)
+            metadata = {
+                "namespace": definition.namespace,
+                "description": definition.description,
+            }
 
-        if use_cache and definition.cache_enabled:
-            cached = self.artifact_store.load_cache(tool_name, params)
-            if cached is not None:
-                cached_value, artifact_path = cached
-                snapshot_path = None
-                if persist_snapshot:
-                    snapshot_path = str(
-                        self.artifact_store.save_snapshot(
-                            tool_name,
-                            params,
-                            cached_value,
-                            snapshot_group=snapshot_group,
-                            snapshot_date=snapshot_date,
-                            metadata=metadata,
+            if use_cache and definition.cache_enabled:
+                cached = self.artifact_store.load_cache(tool_name, params)
+                if cached is not None:
+                    cached_value, artifact_path = cached
+                    snapshot_path = None
+                    if persist_snapshot:
+                        snapshot_path = str(
+                            self.artifact_store.save_snapshot(
+                                tool_name,
+                                params,
+                                cached_value,
+                                snapshot_group=snapshot_group,
+                                snapshot_date=snapshot_date,
+                                metadata=metadata,
+                            )
                         )
+                    return ToolExecutionResult(
+                        tool_name=tool_name,
+                        params=params,
+                        value=cached_value,
+                        from_cache=True,
+                        cache_key=cache_key,
+                        artifact_path=str(artifact_path),
+                        snapshot_path=snapshot_path,
+                        metadata=metadata,
                     )
-                return ToolExecutionResult(
-                    tool_name=tool_name,
-                    params=params,
-                    value=cached_value,
-                    from_cache=True,
-                    cache_key=cache_key,
-                    artifact_path=str(artifact_path),
-                    snapshot_path=snapshot_path,
-                    metadata=metadata,
+
+            value = definition.handler(**params)
+            artifact_path = None
+            if definition.cache_enabled:
+                artifact_path = str(
+                    self.artifact_store.save_cache(
+                        tool_name,
+                        params,
+                        value,
+                        metadata=metadata,
+                    )
                 )
 
-        value = definition.handler(**params)
-        artifact_path = None
-        if definition.cache_enabled:
-            artifact_path = str(
-                self.artifact_store.save_cache(
-                    tool_name,
-                    params,
-                    value,
-                    metadata=metadata,
+            snapshot_path = None
+            if persist_snapshot:
+                snapshot_path = str(
+                    self.artifact_store.save_snapshot(
+                        tool_name,
+                        params,
+                        value,
+                        snapshot_group=snapshot_group,
+                        snapshot_date=snapshot_date,
+                        metadata=metadata,
+                    )
                 )
+
+            return ToolExecutionResult(
+                tool_name=tool_name,
+                params=params,
+                value=value,
+                from_cache=False,
+                cache_key=cache_key,
+                artifact_path=artifact_path,
+                snapshot_path=snapshot_path,
+                metadata=metadata,
             )
-
-        snapshot_path = None
-        if persist_snapshot:
-            snapshot_path = str(
-                self.artifact_store.save_snapshot(
-                    tool_name,
-                    params,
-                    value,
-                    snapshot_group=snapshot_group,
-                    snapshot_date=snapshot_date,
-                    metadata=metadata,
-                )
-            )
-
-        return ToolExecutionResult(
-            tool_name=tool_name,
-            params=params,
-            value=value,
-            from_cache=False,
-            cache_key=cache_key,
-            artifact_path=artifact_path,
-            snapshot_path=snapshot_path,
-            metadata=metadata,
-        )

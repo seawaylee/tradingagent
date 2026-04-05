@@ -93,6 +93,14 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Qwen qwen3.5-plus", "qwen3.5-plus"),
         ],
     },
+    "zhipu": {
+        "quick": [
+            ("GLM-5.1 - Zhipu flagship reasoning model", "GLM-5.1"),
+        ],
+        "deep": [
+            ("GLM-5.1 - Zhipu flagship reasoning model", "GLM-5.1"),
+        ],
+    },
 }
 
 
