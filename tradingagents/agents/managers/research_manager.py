@@ -1,6 +1,6 @@
 import re
 
-from tradingagents.agents.utils.agent_utils import build_instrument_context, get_internal_language_instruction
+from tradingagents.agents.utils.agent_utils import build_instrument_context, get_user_facing_report_instruction
 
 
 _POLICY_SENSITIVE_REPLACEMENTS = [
@@ -112,7 +112,7 @@ Here are your past reflections and lessons:
 
 Here is the debate:
 Debate History:
-{history}{get_internal_language_instruction()}"""
+{history}{get_user_facing_report_instruction()}"""
         response = llm.invoke(prompt)
 
         new_investment_debate_state = {

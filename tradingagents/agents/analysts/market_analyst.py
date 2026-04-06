@@ -3,8 +3,8 @@ import time
 import json
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
+    get_user_facing_report_instruction,
     get_indicators,
-    get_internal_language_instruction,
     get_stock_data,
 )
 from tradingagents.dataflows.config import get_config
@@ -66,7 +66,7 @@ Volume-Based Indicators:
 
 - Select indicators that provide diverse and complementary information. Avoid redundancy. When you tool call, please use the exact name of the indicators provided above as they are defined parameters, otherwise your call will fail. Please make sure to call get_stock_data first to retrieve the CSV that is needed to generate indicators. Then use get_indicators with the specific indicator names. Write a detailed report that also discusses A-share specific execution issues such as涨跌停、T+1、换手率、情绪冲高回落风险, and whether the setup favors trend-following or mean-reversion."""
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
-            + get_internal_language_instruction()
+            + get_user_facing_report_instruction()
         )
 
         prompt = ChatPromptTemplate.from_messages(

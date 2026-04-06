@@ -32,4 +32,7 @@ LAST_CONFIG = {'project_dir': '/Users/seawaylee/app/git/tradingagent/tradingagen
                   'technical_indicators': 'akshare',
                   'fundamental_data': 'akshare',
                   'news_data': 'akshare'},
- 'tool_vendors': {}}
+ 'tool_vendors': {'get_news': 'mx,akshare',
+                  'get_market_news': 'mx,akshare',
+                  'get_company_announcements': 'mx,akshare',
+                  'get_fundamentals': 'mx,akshare'}}

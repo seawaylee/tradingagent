@@ -7,6 +7,18 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from tradingagents.agents.utils.agent_utils import get_final_output_language
+
+
+def _use_chinese_report_labels() -> bool:
+    """
+    判断当前报告是否应使用中文章节标题。
+
+    返回：
+        bool: 若最终输出语言为中文，则返回 True。
+    """
+    return get_final_output_language().strip().lower() == "chinese"
+
 
 def _collect_report_sections(final_state: dict[str, Any], save_path: Path) -> list[str]:
     """
@@ -20,46 +32,55 @@ def _collect_report_sections(final_state: dict[str, Any], save_path: Path) -> li
         list[str]: 按顺序拼接后的报告章节列表。
     """
     sections = []
+    use_chinese_labels = _use_chinese_report_labels()
 
     analysts_dir = save_path / "1_analysts"
     analyst_parts = []
     if final_state.get("final_market_report"):
         analysts_dir.mkdir(exist_ok=True)
         (analysts_dir / "market_report.md").write_text(final_state["final_market_report"], encoding="utf-8")
-        analyst_parts.append(("Market Analyst", final_state["final_market_report"]))
+        analyst_parts.append(("市场分析师" if use_chinese_labels else "Market Analyst", final_state["final_market_report"]))
     if final_state.get("final_sentiment_report"):
         analysts_dir.mkdir(exist_ok=True)
         (analysts_dir / "sentiment_report.md").write_text(final_state["final_sentiment_report"], encoding="utf-8")
-        analyst_parts.append(("Social Analyst", final_state["final_sentiment_report"]))
+        analyst_parts.append(("情绪分析师" if use_chinese_labels else "Social Analyst", final_state["final_sentiment_report"]))
     if final_state.get("final_news_report"):
         analysts_dir.mkdir(exist_ok=True)
         (analysts_dir / "news_report.md").write_text(final_state["final_news_report"], encoding="utf-8")
-        analyst_parts.append(("News Analyst", final_state["final_news_report"]))
+        analyst_parts.append(("新闻分析师" if use_chinese_labels else "News Analyst", final_state["final_news_report"]))
     if final_state.get("final_fundamentals_report"):
         analysts_dir.mkdir(exist_ok=True)
         (analysts_dir / "fundamentals_report.md").write_text(final_state["final_fundamentals_report"], encoding="utf-8")
-        analyst_parts.append(("Fundamentals Analyst", final_state["final_fundamentals_report"]))
+        analyst_parts.append(("基本面分析师" if use_chinese_labels else "Fundamentals Analyst", final_state["final_fundamentals_report"]))
     if analyst_parts:
         content = "\n\n".join(f"### {name}\n{text}" for name, text in analyst_parts)
-        sections.append(f"## I. Analyst Team Reports\n\n{content}")
+        sections.append(
+            f"## {'一、分析师团队报告' if use_chinese_labels else 'I. Analyst Team Reports'}\n\n{content}"
+        )
 
     if final_state.get("final_investment_plan_report"):
         research_dir = save_path / "2_research"
         research_dir.mkdir(exist_ok=True)
         (research_dir / "investment_plan.md").write_text(final_state["final_investment_plan_report"], encoding="utf-8")
-        sections.append(f"## II. Research Team Decision\n\n{final_state['final_investment_plan_report']}")
+        sections.append(
+            f"## {'二、研究团队决策' if use_chinese_labels else 'II. Research Team Decision'}\n\n{final_state['final_investment_plan_report']}"
+        )
 
     if final_state.get("final_trader_investment_plan_report"):
         trading_dir = save_path / "3_trading"
         trading_dir.mkdir(exist_ok=True)
         (trading_dir / "trader_investment_plan_report.md").write_text(final_state["final_trader_investment_plan_report"], encoding="utf-8")
-        sections.append(f"## III. Trading Team Plan\n\n{final_state['final_trader_investment_plan_report']}")
+        sections.append(
+            f"## {'三、交易团队计划' if use_chinese_labels else 'III. Trading Team Plan'}\n\n{final_state['final_trader_investment_plan_report']}"
+        )
 
     if final_state.get("final_trade_decision_report"):
         portfolio_dir = save_path / "4_portfolio"
         portfolio_dir.mkdir(exist_ok=True)
         (portfolio_dir / "final_trade_decision_report.md").write_text(final_state["final_trade_decision_report"], encoding="utf-8")
-        sections.append(f"## IV. Portfolio Management Decision\n\n{final_state['final_trade_decision_report']}")
+        sections.append(
+            f"## {'四、组合管理决策' if use_chinese_labels else 'IV. Portfolio Management Decision'}\n\n{final_state['final_trade_decision_report']}"
+        )
 
     return sections
 
@@ -75,7 +96,12 @@ def _build_complete_report_text(ticker: str, sections: list[str]) -> str:
     返回：
         str: 完整 Markdown 报告内容。
     """
-    header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    use_chinese_labels = _use_chinese_report_labels()
+    generated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if use_chinese_labels:
+        header = f"# 股票分析报告：{ticker}\n\n生成时间：{generated_at}\n\n"
+    else:
+        header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {generated_at}\n\n"
     return header + "\n\n".join(sections)
 
 
@@ -146,7 +172,7 @@ def _build_report_html(report_text: str) -> str:
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
-    <title>Trading Analysis Report</title>
+    <title>{"股票分析报告" if _use_chinese_report_labels() else "Trading Analysis Report"}</title>
     <style>
       @page {{
         size: A4;
@@ -487,7 +513,8 @@ def _render_pdf_report(report_text: str, output_path: Path) -> None:
     def draw_page_number(canvas, doc) -> None:
         canvas.setFont("Helvetica", 9)
         canvas.setFillColor(colors.HexColor("#7B8794"))
-        canvas.drawRightString(doc.pagesize[0] - 40, 24, f"Page {canvas.getPageNumber()}")
+        page_label = f"第 {canvas.getPageNumber()} 页" if _use_chinese_report_labels() else f"Page {canvas.getPageNumber()}"
+        canvas.drawRightString(doc.pagesize[0] - 40, 24, page_label)
 
     document = SimpleDocTemplate(
         str(output_path),
@@ -496,7 +523,7 @@ def _render_pdf_report(report_text: str, output_path: Path) -> None:
         rightMargin=40,
         topMargin=48,
         bottomMargin=40,
-        title="Trading Analysis Report",
+        title="股票分析报告" if _use_chinese_report_labels() else "Trading Analysis Report",
     )
     document.build(story, onFirstPage=draw_page_number, onLaterPages=draw_page_number)
 

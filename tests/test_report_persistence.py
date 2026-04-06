@@ -83,7 +83,9 @@ class ReportPersistenceTest(unittest.TestCase):
             self.assertTrue((report_dir / "2_research" / "investment_plan.md").exists())
             self.assertTrue((report_dir / "3_trading" / "trader_investment_plan_report.md").exists())
             self.assertTrue((report_dir / "4_portfolio" / "final_trade_decision_report.md").exists())
-            self.assertIn("600570", report_file.read_text(encoding="utf-8"))
+            report_text = report_file.read_text(encoding="utf-8")
+            self.assertIn("# 股票分析报告：600570", report_text)
+            self.assertIn("## 一、分析师团队报告", report_text)
             self.assertEqual(report_pdf_file.read_bytes()[:4], b"%PDF")
 
     def test_quick_mode_overrides_debate_rounds_at_runtime(self):

@@ -1,7 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import time
 import json
-from tradingagents.agents.utils.agent_utils import build_instrument_context, get_internal_language_instruction, get_news
+from tradingagents.agents.utils.agent_utils import build_instrument_context, get_news, get_user_facing_report_instruction
 from tradingagents.dataflows.config import get_config
 
 
@@ -35,7 +35,7 @@ def create_social_media_analyst(llm):
         system_message = (
             "You are an A-share sentiment analyst focused on retail mood, media framing, and company-specific public attention. Use get_news(ticker, start_date, end_date) to summarize signals that proxy for investor sentiment in the A-share market, such as media tone, repeated narratives, product buzz, and emotionally charged reactions around the stock. Do not assume direct access to overseas social platforms; infer sentiment from Chinese financial media and company-specific news flow. Highlight whether sentiment is improving, overheating, or deteriorating, and explain the likely short-term impact on A-share trading."
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
-            + get_internal_language_instruction()
+            + get_user_facing_report_instruction()
         )
 
         prompt = ChatPromptTemplate.from_messages(

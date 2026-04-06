@@ -65,7 +65,10 @@ DEFAULT_CONFIG = {
     },
     # 工具级配置（优先级高于类别级）
     "tool_vendors": {
-        # 示例："get_market_news": "akshare",
+        "get_news": "mx,akshare",
+        "get_market_news": "mx,akshare",
+        "get_company_announcements": "mx,akshare",
+        "get_fundamentals": "mx,akshare",
     },
 }
 
@@ -104,7 +107,14 @@ def build_runtime_config() -> dict:
         dict: 以默认配置为基底，并叠加上一次 CLI 保存配置后的结果。
     """
     runtime_config = DEFAULT_CONFIG.copy()
-    runtime_config.update(load_last_config())
+    last_config = load_last_config()
+    for key, value in last_config.items():
+        if key in {"data_vendors", "tool_vendors"} and isinstance(value, dict):
+            merged = runtime_config.get(key, {}).copy()
+            merged.update(value)
+            runtime_config[key] = merged
+        else:
+            runtime_config[key] = value
     return runtime_config
 
 

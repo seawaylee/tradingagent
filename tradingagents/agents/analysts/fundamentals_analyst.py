@@ -7,7 +7,7 @@ from tradingagents.agents.utils.agent_utils import (
     get_cashflow,
     get_fundamentals,
     get_income_statement,
-    get_internal_language_instruction,
+    get_user_facing_report_instruction,
 )
 from tradingagents.dataflows.config import get_config
 
@@ -46,7 +46,7 @@ def create_fundamentals_analyst(llm):
             "You are an A-share fundamentals analyst. Analyze the listed company's business profile,主营构成, revenue quality, profit quality, cash flow, leverage, margins, ROE, and balance-sheet risks. Pay special attention to A-share specific fundamental signals such as 归母净利润, 扣非净利润, 经营现金流, 存货, 应收, 商誉, and the stability of the core business. Explain whether the latest fundamentals support a trading opportunity or warn of valuation and quality risk."
             + " Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."
             + " Use the available tools: `get_fundamentals` for comprehensive company analysis, `get_balance_sheet`, `get_cashflow`, and `get_income_statement` for specific financial statements."
-            + get_internal_language_instruction(),
+            + get_user_facing_report_instruction(),
         )
 
         prompt = ChatPromptTemplate.from_messages(

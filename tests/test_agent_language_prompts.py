@@ -79,6 +79,16 @@ class AgentLanguagePromptTest(unittest.TestCase):
         }
 
     def test_internal_nodes_use_internal_language_constraints(self):
+        bull_llm = _FakeLLM()
+        state = self._base_state()
+
+        create_bull_researcher(bull_llm, self.memory)(state)
+
+        bull_prompt = bull_llm.invocations[0]
+
+        self.assertNotIn("selected final output language", bull_prompt)
+
+    def test_user_facing_nodes_use_final_language_constraints(self):
         research_llm = _FakeLLM()
         trader_llm = _FakeLLM()
         state = self._base_state()
@@ -90,8 +100,10 @@ class AgentLanguagePromptTest(unittest.TestCase):
         trader_system_prompt = trader_llm.invocations[0][0]["content"]
 
         self.assertIn("A-share research manager and debate facilitator", research_prompt)
-        self.assertIn("selected internal language", trader_system_prompt)
+        self.assertIn("selected final output language", research_prompt)
+        self.assertIn("selected final output language", trader_system_prompt)
         self.assertIn("FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**", trader_system_prompt)
+        self.assertNotIn("selected internal language", trader_system_prompt)
 
     def test_debate_nodes_emit_english_speaker_labels_when_internal_is_english(self):
         state = self._base_state()
@@ -190,6 +202,24 @@ class AgentLanguagePromptTest(unittest.TestCase):
         self.assertEqual("交易计划", result["final_trader_investment_plan_report"])
         self.assertEqual("组合经理最终决策", result["final_trade_decision_report"])
         self.assertEqual([], finalizer_llm.invocations)
+
+    def test_report_finalizer_rewrites_english_leakage_when_final_language_is_chinese(self):
+        finalizer_llm = _FakeLLM("清洗后的中文报告")
+        state = self._base_state()
+        state["market_report"] = "Now let me compile the report.\n# Market Analysis Report\nEnglish body"
+        state["sentiment_report"] = ""
+        state["news_report"] = ""
+        state["fundamentals_report"] = ""
+        state["investment_plan"] = ""
+        state["trader_investment_plan"] = ""
+        state["final_trade_decision"] = ""
+
+        result = create_report_finalizer(finalizer_llm)(state)
+
+        self.assertEqual("清洗后的中文报告", result["final_market_report"])
+        self.assertEqual(1, len(finalizer_llm.invocations))
+        self.assertIn("Rewrite the following market analysis report", finalizer_llm.invocations[0])
+        self.assertIn("Remove English workflow narration or meta commentary", finalizer_llm.invocations[0])
 
 
 if __name__ == "__main__":

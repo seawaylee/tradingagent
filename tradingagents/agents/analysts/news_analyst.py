@@ -4,9 +4,9 @@ import json
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_company_announcements,
-    get_internal_language_instruction,
     get_market_news,
     get_news,
+    get_user_facing_report_instruction,
 )
 from tradingagents.dataflows.config import get_config
 
@@ -39,7 +39,7 @@ def create_news_analyst(llm):
         system_message = (
             "You are an A-share news researcher. Analyze company news, listed-company announcements, industry policy changes, and A-share market-wide policy and macro signals that matter for trading. Use get_news(ticker, start_date, end_date) for company news, get_company_announcements(ticker, start_date, end_date, category) for disclosure records, and get_market_news(curr_date, look_back_days, limit) for broader market, policy, and macro news. Focus on policy catalysts,监管变化,业绩披露窗口, liquidity conditions, and any event that can affect next-day or short-swing trading in the A-share market."
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
-            + get_internal_language_instruction()
+            + get_user_facing_report_instruction()
         )
 
         prompt = ChatPromptTemplate.from_messages(

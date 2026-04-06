@@ -1,7 +1,7 @@
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
-    get_final_language_instruction,
     get_final_output_language,
+    get_user_facing_report_instruction,
 )
 
 
@@ -78,7 +78,7 @@ def create_portfolio_manager(llm, memory):
 
 ---
 
-Be decisive and ground every conclusion in specific evidence from the analysts. Explicitly mention T+1,涨跌停,流动性, and whether execution risk changes the final action.{get_final_language_instruction()} Keep the rating keyword itself in English as one of Buy / Overweight / Hold / Underweight / Sell for downstream parsing, but translate all headings and explanatory text into the selected final output language."""
+Be decisive and ground every conclusion in specific evidence from the analysts. Explicitly mention T+1,涨跌停,流动性, and whether execution risk changes the final action.{get_user_facing_report_instruction()} Keep the rating keyword itself in English as one of Buy / Overweight / Hold / Underweight / Sell for downstream parsing, but translate all headings and explanatory text into the selected final output language."""
 
         response = llm.invoke(prompt)
 

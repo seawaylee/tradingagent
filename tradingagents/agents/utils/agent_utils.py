@@ -35,9 +35,12 @@ def _build_language_instruction(language: str, usage_label: str) -> str:
     if lang.lower() == "english":
         return ""
     return (
-        f" Write all narrative text, section headings, bullet labels, and summaries in {lang}."
+        f" Write all narrative text, section headings, bullet labels, table headers, and summaries in {lang}."
         f" Treat this as the selected {usage_label}."
+        " Do not switch back to English for prose."
+        " Do not add workflow narration or meta commentary such as collecting data, compiling the report, or preparing the final answer."
         " Translate default English headings unless an explicit machine-readable token is required."
+        " Only preserve English when it is an explicit machine-readable token, stock ticker, indicator name, or required downstream rating keyword."
     )
 
 
@@ -72,6 +75,20 @@ def get_language_instruction() -> str:
         str: 当前最终语言约束提示语。
     """
     return get_final_language_instruction()
+
+
+def get_user_facing_report_instruction() -> str:
+    """
+    返回面向最终报告的统一输出约束。
+
+    返回：
+        str: 报告语言与格式约束提示语。
+    """
+    return (
+        f"{get_final_language_instruction()}"
+        " Return only the finished report body in Markdown."
+        " Do not include process narration, tool-call summaries, or transition sentences before the real content."
+    )
 
 
 

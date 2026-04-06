@@ -9,6 +9,12 @@ from .a_share import (
     get_news as get_akshare_news,
     get_stock_data as get_akshare_stock_data,
 )
+from .eastmoney_mx import (
+    get_company_announcements as get_mx_company_announcements,
+    get_fundamentals as get_mx_fundamentals,
+    get_market_news as get_mx_market_news,
+    get_news as get_mx_news,
+)
 from .config import get_config
 
 TOOLS_CATEGORIES = {
@@ -30,7 +36,7 @@ TOOLS_CATEGORIES = {
     },
 }
 
-VENDOR_LIST = ["akshare"]
+VENDOR_LIST = ["akshare", "mx"]
 
 VENDOR_METHODS = {
     "get_stock_data": {
@@ -41,6 +47,7 @@ VENDOR_METHODS = {
     },
     "get_fundamentals": {
         "akshare": get_akshare_fundamentals,
+        "mx": get_mx_fundamentals,
     },
     "get_balance_sheet": {
         "akshare": get_akshare_balance_sheet,
@@ -53,12 +60,15 @@ VENDOR_METHODS = {
     },
     "get_news": {
         "akshare": get_akshare_news,
+        "mx": get_mx_news,
     },
     "get_market_news": {
         "akshare": get_akshare_market_news,
+        "mx": get_mx_market_news,
     },
     "get_company_announcements": {
         "akshare": get_akshare_company_announcements,
+        "mx": get_mx_company_announcements,
     },
 }
 
@@ -131,6 +141,9 @@ def route_to_vendor(method: str, *args, **kwargs):
         vendor_impl = VENDOR_METHODS[method][vendor]
         impl_func = vendor_impl[0] if isinstance(vendor_impl, list) else vendor_impl
 
-        return impl_func(*args, **kwargs)
+        try:
+            return impl_func(*args, **kwargs)
+        except Exception:
+            continue
 
     raise RuntimeError(f"No available vendor for '{method}'")

@@ -4,7 +4,7 @@ import json
 
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
-    get_internal_language_instruction,
+    get_user_facing_report_instruction,
 )
 
 
@@ -56,7 +56,7 @@ def create_trader(llm, memory):
         messages = [
             {
                 "role": "system",
-                "content": f"""You are an A-share trader. Based on the analysis, provide a specific recommendation to buy, sell, or hold. Your reasoning must reflect A-share execution constraints including T+1,涨跌停,成交额 and换手率 quality, and whether a theme may continue or fade. Apply lessons from past decisions to strengthen your analysis. Here are reflections from similar situations you traded in and the lessons learned: {past_memory_str}{get_internal_language_instruction()} Keep all explanatory content in the selected internal language, but preserve the final machine-readable line exactly as 'FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**'.""",
+                "content": f"""You are an A-share trader. Based on the analysis, provide a specific recommendation to buy, sell, or hold. Your reasoning must reflect A-share execution constraints including T+1,涨跌停,成交额 and换手率 quality, and whether a theme may continue or fade. Apply lessons from past decisions to strengthen your analysis. Here are reflections from similar situations you traded in and the lessons learned: {past_memory_str}{get_user_facing_report_instruction()} Keep all explanatory content in the selected final output language, but preserve the final machine-readable line exactly as 'FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**'.""",
             },
             context,
         ]
