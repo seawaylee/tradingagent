@@ -131,6 +131,7 @@ export ANTHROPIC_API_KEY=...
 export XAI_API_KEY=...
 export OPENROUTER_API_KEY=...
 export ZAI_API_KEY=...
+export MX_APIKEY=...
 ```
 
 ### 3) 启动 CLI
@@ -146,6 +147,22 @@ python -m cli.main
 详细使用与接入说明见：
 
 - [docs/integration.md](./docs/integration.md)
+
+如果你是下游项目里的 code agent，先看这几条，够你直接接：
+
+- 必备环境变量：`ZAI_API_KEY`
+- 可选增强数据源：`MX_APIKEY` 或 `EASTMONEY_APIKEY`
+- 稳定代码入口：`TradingPlatform.run_agent(...)`
+- 推荐运行参数：`context={"quick_mode": True, "persist_report": True}`
+- 稳定输出字段：`result.decision.action.value`、`result.decision.rationale`、`result.outputs["report_file"]`、`result.outputs["report_pdf_file"]`、`result.outputs["report_dir"]`
+
+当前默认已经内置：
+
+- `llm_provider = zhipu`
+- `backend_url = https://open.bigmodel.cn/api/coding/paas/v4`
+- `deep_think_llm = GLM-5.1`
+- `quick_think_llm = GLM-5.1`
+- `get_news / get_market_news / get_company_announcements / get_fundamentals = mx,akshare`
 
 文档包含：
 

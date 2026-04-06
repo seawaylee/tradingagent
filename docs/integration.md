@@ -8,6 +8,111 @@
 如果你是下游系统接入方，推荐直接使用 `TradingPlatform.run_agent(...)`。  
 不要把 `TradingAgentsGraph` 当成对外稳定接口；它更适合框架内部调试和图级实验。
 
+## 0. 给 Code Agent 的 30 秒接入版
+
+如果你的目标是“让另一个项目里的 code agent 立刻调起来”，只看这段就够了。
+
+### 0.1 必备环境变量
+
+```bash
+export ZAI_API_KEY=你的智谱Key
+```
+
+可选但推荐：
+
+```bash
+export MX_APIKEY=你的东方财富妙想Key
+```
+
+说明：
+
+- LLM 默认就是 `zhipu + GLM-5.1`，不需要再改 provider。
+- 妙想 key 不写死在代码里，只从 `MX_APIKEY` 或 `EASTMONEY_APIKEY` 读取。
+- 如果没有配置妙想 key，相关数据工具会自动从 `mx` 回退到 `akshare`。
+
+### 0.2 稳定调用入口
+
+不要直接调用图对象。  
+稳定入口只有这一条：
+
+```python
+from tradingagents.agent_core.types import AgentRunRequest
+from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.platform import TradingPlatform
+
+
+config = DEFAULT_CONFIG.copy()
+platform = TradingPlatform(config=config)
+platform.register_trading_agents_agent(debug=False)
+
+result = platform.run_agent(
+    "tradingagents",
+    AgentRunRequest(
+        symbol="600570",
+        trade_date="2026-04-03",
+        context={
+            "quick_mode": True,
+            "persist_report": True,
+        },
+    ),
+)
+```
+
+### 0.3 先读哪些结果
+
+```python
+result.decision.action.value
+result.decision.rationale
+result.outputs["report_file"]
+result.outputs["report_pdf_file"]
+result.outputs["report_dir"]
+```
+
+业务上建议这样理解：
+
+- `action`：最终标准动作，只会是 `BUY` / `HOLD` / `SELL`
+- `rationale`：最终组合经理结论
+- `report_file`：本次完整 Markdown 报告
+- `report_pdf_file`：本次完整 PDF 报告
+- `report_dir`：本次全部持久化产物目录
+
+### 0.4 默认模型和默认数据源
+
+当前默认配置已经内置：
+
+- `llm_provider = zhipu`
+- `backend_url = https://open.bigmodel.cn/api/coding/paas/v4`
+- `deep_think_llm = GLM-5.1`
+- `quick_think_llm = GLM-5.1`
+
+当前默认数据源路由：
+
+- `get_news = mx,akshare`
+- `get_market_news = mx,akshare`
+- `get_company_announcements = mx,akshare`
+- `get_fundamentals = mx,akshare`
+
+含义：
+
+- 优先用东方财富妙想
+- 妙想不可用时自动回退到 `akshare`
+- 行情和技术指标链路仍以现有本地数据流为主，不依赖妙想
+
+### 0.5 快速模式
+
+如果你是系统接入方，默认建议开：
+
+```python
+context={"quick_mode": True}
+```
+
+效果：
+
+- `max_debate_rounds = 1`
+- `max_risk_discuss_rounds = 1`
+
+这样会显著缩短总耗时，更适合服务化场景。
+
 ## 1. 业务定位
 
 本项目不是一个“直接下单”的交易系统，而是一个“多 Agent 研究决策引擎”。
@@ -81,12 +186,25 @@ pip install -e .
 export ZAI_API_KEY=你的智谱Key
 ```
 
+如果你希望新闻、公告、市场新闻、部分基本面优先走东方财富妙想，再配置：
+
+```bash
+export MX_APIKEY=你的东方财富妙想Key
+```
+
 当前项目默认配置已经是：
 
 - `llm_provider = zhipu`
 - `backend_url = https://open.bigmodel.cn/api/coding/paas/v4`
 - `deep_think_llm = GLM-5.1`
 - `quick_think_llm = GLM-5.1`
+
+默认工具路由中，这几类会优先使用 `mx`，失败后自动回退 `akshare`：
+
+- `get_news`
+- `get_market_news`
+- `get_company_announcements`
+- `get_fundamentals`
 
 报告默认落盘根目录可以通过环境变量覆盖：
 
