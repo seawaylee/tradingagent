@@ -180,6 +180,15 @@ class TradingAgentsGraph:
         timeout = self.config.get("timeout")
         if timeout is not None:
             kwargs["timeout"] = timeout
+        max_retries = self.config.get("max_retries")
+        if max_retries is not None:
+            kwargs["max_retries"] = max_retries
+        http_client = self.config.get("http_client")
+        if http_client is not None:
+            kwargs["http_client"] = http_client
+        http_async_client = self.config.get("http_async_client")
+        if http_async_client is not None:
+            kwargs["http_async_client"] = http_async_client
 
         return kwargs
 
