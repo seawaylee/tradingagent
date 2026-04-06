@@ -1,6 +1,9 @@
 import datetime
 import html
 import re
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -114,6 +117,236 @@ def _apply_inline_markup(text: str) -> str:
     return "".join(chunks)
 
 
+def _build_report_html(report_text: str) -> str:
+    """
+    将 Markdown 报告转换为适合浏览器打印的 HTML。
+
+    参数：
+        report_text: 完整 Markdown 报告。
+
+    返回：
+        str: 完整 HTML 文本。
+    """
+    try:
+        import markdown
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError("PDF export requires markdown. Install it with `pip install markdown`.") from exc
+
+    body_html = markdown.markdown(
+        report_text,
+        extensions=[
+            "tables",
+            "fenced_code",
+            "sane_lists",
+            "nl2br",
+        ],
+        output_format="html5",
+    )
+    return f"""<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Trading Analysis Report</title>
+    <style>
+      @page {{
+        size: A4;
+        margin: 16mm 14mm 18mm 14mm;
+      }}
+      :root {{
+        --bg: #f5f7fb;
+        --paper: #ffffff;
+        --line: #d9e2ec;
+        --line-strong: #bcccdc;
+        --text: #1f2933;
+        --muted: #52606d;
+        --heading: #102a43;
+        --accent: #0b5cab;
+        --accent-soft: #eaf2ff;
+        --code-bg: #f0f4f8;
+      }}
+      * {{
+        box-sizing: border-box;
+      }}
+      body {{
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }}
+      .page {{
+        background: var(--paper);
+        padding: 18mm 16mm;
+      }}
+      article {{
+        font-size: 12px;
+        line-height: 1.7;
+      }}
+      h1, h2, h3, h4 {{
+        color: var(--heading);
+        margin: 1.15em 0 0.5em;
+        line-height: 1.35;
+        page-break-after: avoid;
+      }}
+      h1 {{
+        margin-top: 0;
+        font-size: 26px;
+        border-bottom: 2px solid var(--line);
+        padding-bottom: 10px;
+      }}
+      h2 {{
+        font-size: 20px;
+        margin-top: 1.4em;
+        padding-left: 10px;
+        border-left: 4px solid var(--accent);
+      }}
+      h3 {{
+        font-size: 15px;
+      }}
+      p {{
+        margin: 0.5em 0;
+      }}
+      ul, ol {{
+        margin: 0.45em 0 0.8em 1.4em;
+        padding: 0;
+      }}
+      li {{
+        margin: 0.22em 0;
+      }}
+      hr {{
+        border: none;
+        border-top: 1px solid var(--line);
+        margin: 1.2em 0;
+      }}
+      blockquote {{
+        margin: 0.9em 0;
+        padding: 0.7em 1em;
+        border-left: 4px solid var(--accent);
+        background: var(--accent-soft);
+        color: var(--muted);
+      }}
+      code {{
+        font-family: "SFMono-Regular", "JetBrains Mono", "Menlo", monospace;
+        font-size: 0.92em;
+        background: var(--code-bg);
+        padding: 0.12em 0.35em;
+        border-radius: 4px;
+      }}
+      pre {{
+        overflow: auto;
+        background: var(--code-bg);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px 12px;
+      }}
+      pre code {{
+        background: transparent;
+        padding: 0;
+      }}
+      table {{
+        width: 100%;
+        border-collapse: collapse;
+        margin: 0.9em 0 1.1em;
+        table-layout: fixed;
+        page-break-inside: avoid;
+      }}
+      thead {{
+        display: table-header-group;
+      }}
+      tr {{
+        page-break-inside: avoid;
+      }}
+      th, td {{
+        border: 1px solid var(--line-strong);
+        padding: 8px 10px;
+        vertical-align: top;
+        word-break: break-word;
+      }}
+      th {{
+        background: #f7fafc;
+        font-weight: 700;
+      }}
+      strong {{
+        color: var(--heading);
+      }}
+      .page-number {{
+        position: fixed;
+        bottom: 6mm;
+        right: 14mm;
+        color: #7b8794;
+        font-size: 10px;
+      }}
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <article>{body_html}</article>
+    </div>
+  </body>
+</html>
+"""
+
+
+def _render_pdf_via_browser(report_text: str, output_path: Path) -> None:
+    """
+    通过 Chromium 浏览器打印 PDF，以获得更好的版式保真。
+
+    参数：
+        report_text: 完整 Markdown 报告。
+        output_path: PDF 输出路径。
+
+    返回：
+        None: 无返回值。
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError("PDF export requires playwright. Install it with `pip install playwright`.") from exc
+
+    html_text = _build_report_html(report_text)
+
+    with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as tmp:
+        tmp.write(html_text)
+        html_path = Path(tmp.name)
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto(html_path.as_uri(), wait_until="load")
+            page.pdf(
+                path=str(output_path),
+                format="A4",
+                print_background=True,
+                prefer_css_page_size=True,
+            )
+            browser.close()
+    except Exception as exc:  # noqa: BLE001
+        if "Executable doesn't exist" in str(exc):
+            subprocess.run(
+                [sys.executable, "-m", "playwright", "install", "chromium"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            with sync_playwright() as p:
+                browser = p.chromium.launch()
+                page = browser.new_page()
+                page.goto(html_path.as_uri(), wait_until="load")
+                page.pdf(
+                    path=str(output_path),
+                    format="A4",
+                    print_background=True,
+                    prefer_css_page_size=True,
+                )
+                browser.close()
+        else:
+            raise
+    finally:
+        html_path.unlink(missing_ok=True)
+
+
 def _render_pdf_report(report_text: str, output_path: Path) -> None:
     """
     将 Markdown 风格的完整报告渲染为 PDF。
@@ -126,6 +359,12 @@ def _render_pdf_report(report_text: str, output_path: Path) -> None:
         None: 无返回值。
     """
     try:
+        _render_pdf_via_browser(report_text, output_path)
+        return
+    except Exception:
+        pass
+
+    try:
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -133,7 +372,9 @@ def _render_pdf_report(report_text: str, output_path: Path) -> None:
         from reportlab.pdfbase.cidfonts import UnicodeCIDFont
         from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
     except ImportError as exc:  # pragma: no cover
-        raise RuntimeError("PDF export requires reportlab. Install it with `pip install reportlab`.") from exc
+        raise RuntimeError(
+            "PDF export requires either playwright+markdown or reportlab."
+        ) from exc
 
     font_name = "STSong-Light"
     try:
