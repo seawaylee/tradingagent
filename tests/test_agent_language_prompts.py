@@ -28,6 +28,12 @@ class _FakeLLM:
         return _FakeResponse(self.content)
 
 
+class _FailingLLM(_FakeLLM):
+    def invoke(self, payload):
+        self.invocations.append(payload)
+        raise RuntimeError("cleanup failed")
+
+
 class _FakeMemory:
     def get_memories(self, curr_situation, n_matches=2):
         return [{"recommendation": "历史复盘"}]
@@ -104,6 +110,24 @@ class AgentLanguagePromptTest(unittest.TestCase):
         self.assertIn("selected final output language", trader_system_prompt)
         self.assertIn("FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**", trader_system_prompt)
         self.assertNotIn("selected internal language", trader_system_prompt)
+
+    def test_user_facing_nodes_switch_market_wording_for_hk_symbols(self):
+        research_llm = _FakeLLM()
+        trader_llm = _FakeLLM()
+        state = self._base_state()
+        state["company_of_interest"] = "01810.HK"
+
+        create_research_manager(research_llm, self.memory)(state)
+        create_trader(trader_llm, self.memory)(state)
+
+        research_prompt = research_llm.invocations[0]
+        trader_system_prompt = trader_llm.invocations[0][0]["content"]
+
+        self.assertIn("Hong Kong stock research manager", research_prompt)
+        self.assertIn("Hong Kong stock trader", trader_system_prompt)
+        self.assertIn("southbound flows", trader_system_prompt)
+        self.assertNotIn("A-share research manager", research_prompt)
+        self.assertNotIn("You are an A-share trader", trader_system_prompt)
 
     def test_debate_nodes_emit_english_speaker_labels_when_internal_is_english(self):
         state = self._base_state()
@@ -220,6 +244,17 @@ class AgentLanguagePromptTest(unittest.TestCase):
         self.assertEqual(1, len(finalizer_llm.invocations))
         self.assertIn("Rewrite the following market analysis report", finalizer_llm.invocations[0])
         self.assertIn("Remove English workflow narration or meta commentary", finalizer_llm.invocations[0])
+
+    def test_report_finalizer_does_not_silently_fall_back_when_cleanup_fails(self):
+        finalizer_llm = _FailingLLM()
+        state = self._base_state()
+        state["market_report"] = "Now let me compile the report.\n# Market Analysis Report\nEnglish body"
+
+        with self.assertRaises(RuntimeError) as ctx:
+            create_report_finalizer(finalizer_llm)(state)
+
+        self.assertIn("cleanup failed", str(ctx.exception))
+        self.assertEqual(1, len(finalizer_llm.invocations))
 
 
 if __name__ == "__main__":

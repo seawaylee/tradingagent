@@ -4,6 +4,9 @@ import json
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_company_announcements,
+    get_market_indefinite_descriptor,
+    get_market_news_focus_prompt,
+    get_market_scope,
     get_market_news,
     get_news,
     get_user_facing_report_instruction,
@@ -32,12 +35,16 @@ def create_news_analyst(llm):
             dict: 需要回写到图状态中的状态补丁。
         """
         current_date = state["trade_date"]
-        instrument_context = build_instrument_context(state["company_of_interest"])
+        ticker = state["company_of_interest"]
+        instrument_context = build_instrument_context(ticker)
+        market_descriptor = get_market_indefinite_descriptor(ticker)
+        market_scope = get_market_scope(ticker)
+        market_news_focus = get_market_news_focus_prompt(ticker)
 
         tools = [get_news, get_market_news, get_company_announcements]
 
         system_message = (
-            "You are an A-share news researcher. Analyze company news, listed-company announcements, industry policy changes, and A-share market-wide policy and macro signals that matter for trading. Use get_news(ticker, start_date, end_date) for company news, get_company_announcements(ticker, start_date, end_date, category) for disclosure records, and get_market_news(curr_date, look_back_days, limit) for broader market, policy, and macro news. Focus on policy catalysts,监管变化,业绩披露窗口, liquidity conditions, and any event that can affect next-day or short-swing trading in the A-share market."
+            f"You are a {market_descriptor} news researcher. Analyze company news, listed-company announcements, industry policy changes, and {market_scope}-wide policy and macro signals that matter for trading. Use get_news(ticker, start_date, end_date) for company news, get_company_announcements(ticker, start_date, end_date, category) for disclosure records, and get_market_news(curr_date, look_back_days, limit) for broader market, policy, and macro news. {market_news_focus}"
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
             + get_user_facing_report_instruction()
         )

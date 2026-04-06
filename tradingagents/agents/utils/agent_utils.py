@@ -18,6 +18,7 @@ from tradingagents.agents.utils.news_data_tools import (
     get_company_announcements,
     get_market_news,
 )
+from tradingagents.dataflows.market_symbols import get_market_label, is_hk_symbol, normalize_market_symbol
 
 
 def _build_language_instruction(language: str, usage_label: str) -> str:
@@ -133,19 +134,146 @@ def get_output_language() -> str:
 
 def build_instrument_context(ticker: str) -> str:
     """
-    描述精确的 A 股标的，确保代理始终保留带交易所后缀的代码。
+    描述精确的标的，确保代理始终保留带交易所后缀的代码。
     
     参数：
-        ticker: 待分析公司的 A 股股票代码。
+        ticker: 待分析公司的股票代码。
     
     返回：
         str: 函数执行结果。
     """
+    normalized_ticker = normalize_market_symbol(ticker)
+    if is_hk_symbol(normalized_ticker):
+        return (
+            f"The instrument to analyze is `{normalized_ticker}`. "
+            "Use this exact Hong Kong stock ticker in every tool call, report, and recommendation, "
+            "preserving the market suffix `.HK`."
+        )
+
+    market_label = get_market_label(normalized_ticker)
     return (
-        f"The instrument to analyze is `{ticker}`. "
-        "Use this exact A-share ticker in every tool call, report, and recommendation, "
+        f"The instrument to analyze is `{normalized_ticker}`. "
+        f"Use this exact {market_label} ticker in every tool call, report, and recommendation, "
         "preserving the market suffix `.SH`, `.SZ`, or `.BJ`."
     )
+
+
+def get_market_descriptor(ticker: str) -> str:
+    """
+    返回市场描述词。
+
+    参数：
+        ticker: 待分析公司的股票代码。
+
+    返回：
+        str: 市场描述词。
+    """
+    normalized_ticker = normalize_market_symbol(ticker)
+    return "Hong Kong stock" if is_hk_symbol(normalized_ticker) else "A-share"
+
+
+def get_market_indefinite_descriptor(ticker: str) -> str:
+    """
+    返回带不定冠词的市场描述词。
+
+    参数：
+        ticker: 待分析公司的股票代码。
+
+    返回：
+        str: 带冠词的市场描述词。
+    """
+    descriptor = get_market_descriptor(ticker)
+    article = "an" if descriptor.startswith("A-") else "a"
+    return f"{article} {descriptor}"
+
+
+def get_market_scope(ticker: str) -> str:
+    """
+    返回市场范围描述。
+
+    参数：
+        ticker: 待分析公司的股票代码。
+
+    返回：
+        str: 市场范围描述。
+    """
+    normalized_ticker = normalize_market_symbol(ticker)
+    return "Hong Kong stock market" if is_hk_symbol(normalized_ticker) else "A-share market"
+
+
+def get_execution_constraints_prompt(ticker: str) -> str:
+    """
+    返回市场执行约束提示语。
+
+    参数：
+        ticker: 待分析公司的股票代码。
+
+    返回：
+        str: 执行约束描述。
+    """
+    if is_hk_symbol(normalize_market_symbol(ticker)):
+        return (
+            "lot size, intraday liquidity, gap risk from overnight U.S./China tech sentiment, "
+            "southbound flows, and the absence of A-share-style daily price limits or T+1 resale constraints "
+            "for most Hong Kong main-board stocks"
+        )
+    return "T+1,涨跌停,成交额和换手率质量,以及情绪冲高回落风险"
+
+
+def get_market_news_focus_prompt(ticker: str) -> str:
+    """
+    返回市场新闻关注点提示语。
+
+    参数：
+        ticker: 待分析公司的股票代码。
+
+    返回：
+        str: 新闻关注点描述。
+    """
+    if is_hk_symbol(normalize_market_symbol(ticker)):
+        return (
+            "Focus on HKEX-style disclosures, company news, China policy spillover, USD/HKD rates, "
+            "southbound flows, sector rotation, and any event that can affect next-day or short-swing "
+            "trading in the Hong Kong stock market."
+        )
+    return (
+        "Focus on policy catalysts,监管变化,业绩披露窗口, liquidity conditions, and any event that can affect "
+        "next-day or short-swing trading in the A-share market."
+    )
+
+
+def get_fundamental_focus_prompt(ticker: str) -> str:
+    """
+    返回市场特定的基本面关注点。
+
+    参数：
+        ticker: 待分析公司的股票代码。
+
+    返回：
+        str: 基本面关注点描述。
+    """
+    if is_hk_symbol(normalize_market_symbol(ticker)):
+        return (
+            "Pay special attention to Hong Kong stock specific signals such as revenue quality, margin structure, "
+            "cash conversion, leverage, ROE, buybacks, shareholder return, and valuation versus Hong Kong peers."
+        )
+    return (
+        "Pay special attention to A-share specific fundamental signals such as 归母净利润, 扣非净利润, 经营现金流, "
+        "存货, 应收, 商誉, and the stability of the core business."
+    )
+
+
+def get_market_policy_report_label(ticker: str) -> str:
+    """
+    返回市场政策报告标签。
+
+    参数：
+        ticker: 待分析公司的股票代码。
+
+    返回：
+        str: 报告标签。
+    """
+    return "Latest Hong Kong market and policy report" if is_hk_symbol(normalize_market_symbol(ticker)) else "Latest A-share market and policy news"
 
 
 def create_msg_delete():

@@ -1,5 +1,6 @@
 from typing import Optional
 import datetime
+import logging
 import typer
 from pathlib import Path
 from functools import wraps
@@ -26,6 +27,11 @@ from rich.rule import Rule
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.default_config import DEFAULT_CONFIG, build_runtime_config, save_last_config
 from tradingagents.reporting import save_report_to_disk as persist_report_to_disk
+from tradingagents.runtime_support import (
+    append_error_log,
+    build_partial_final_state,
+    persist_snapshot,
+)
 from cli.models import AnalystType
 from cli.utils import *
 from cli.announcements import fetch_announcements, display_announcements
@@ -1155,6 +1161,103 @@ def format_tool_args(args, max_length=80) -> str:
         return result[:max_length - 3] + "..."
     return result
 
+
+def configure_run_logger(error_log_file: Path):
+    """
+    为单次运行挂载详细错误日志文件。
+
+    参数：
+        error_log_file: 错误日志文件路径。
+
+    返回：
+        tuple[logging.Logger, logging.Handler]: logger 与本次挂载的 handler。
+    """
+    logger = logging.getLogger("tradingagents")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    handler = logging.FileHandler(error_log_file, encoding="utf-8")
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    )
+    logger.addHandler(handler)
+    return logger, handler
+
+
+def remove_run_logger(logger: logging.Logger, handler: logging.Handler) -> None:
+    """
+    移除本次运行绑定的日志 handler。
+
+    参数：
+        logger: 运行 logger。
+        handler: 待移除的 handler。
+
+    返回：
+        None: 无返回值。
+    """
+    logger.removeHandler(handler)
+    handler.close()
+
+
+def should_resume_from_snapshot(snapshot) -> bool:
+    """
+    判断当前 checkpoint 是否代表一个可继续的未完成运行。
+
+    参数：
+        snapshot: LangGraph 状态快照。
+
+    返回：
+        bool: 若应从 checkpoint 继续，则返回 True。
+    """
+    return bool(getattr(snapshot, "created_at", None)) and bool(
+        getattr(snapshot, "next", ()) or getattr(snapshot, "tasks", ())
+    )
+
+
+def persist_recovery_artifacts(
+    graph: TradingAgentsGraph,
+    graph_config: dict,
+    ticker: str,
+    snapshot_file: Path,
+    partial_report_dir: Path,
+    error_log_file: Path,
+    *,
+    reason: str,
+):
+    """
+    保存当前 checkpoint 快照与可读的部分报告，便于中断后继续。
+
+    参数：
+        graph: TradingAgents 图实例。
+        graph_config: 图运行配置。
+        ticker: 股票代码。
+        snapshot_file: 快照输出文件。
+        partial_report_dir: 部分报告输出目录。
+        error_log_file: 错误日志文件。
+        reason: 当前保存原因。
+
+    返回：
+        Any: LangGraph 状态快照。
+    """
+    snapshot = graph.graph.get_state(graph_config)
+    persist_snapshot(snapshot_file, snapshot, reason=reason)
+    if getattr(snapshot, "values", None):
+        partial_state = build_partial_final_state(snapshot.values)
+        try:
+            persist_report_to_disk(partial_state, ticker, partial_report_dir)
+        except Exception as exc:
+            append_error_log(
+                error_log_file,
+                exc,
+                context={
+                    "phase": "persist_partial_report",
+                    "ticker": ticker,
+                    "reason": reason,
+                    "partial_report_dir": str(partial_report_dir),
+                },
+            )
+    return snapshot
+
 def run_analysis(quick: bool = False):
     # First get all user selections
     """
@@ -1201,6 +1304,23 @@ def run_analysis(quick: bool = False):
     selected_set = {analyst.value for analyst in selections["analysts"]}
     selected_analyst_keys = [a for a in ANALYST_ORDER if a in selected_set]
 
+    # Create result directory
+    results_dir = Path(config["results_dir"]) / selections["ticker"] / selections["analysis_date"]
+    results_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = results_dir / "reports"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    log_file = results_dir / "message_tool.log"
+    log_file.touch(exist_ok=True)
+    error_log_file = results_dir / "error.log"
+    snapshot_file = results_dir / "resume_state.json"
+    partial_report_dir = results_dir / "resume_report"
+    checkpoint_file = results_dir / "checkpoint.pkl"
+
+    config["run_mode"] = "quick" if quick else "full"
+    config["checkpoint_path"] = str(checkpoint_file)
+
+    run_logger, run_log_handler = configure_run_logger(error_log_file)
+
     # 使用绑定了回调的 LLM 初始化图结构
     graph = TradingAgentsGraph(
         selected_analyst_keys,
@@ -1214,14 +1334,6 @@ def run_analysis(quick: bool = False):
 
     # 记录开始时间，用于展示耗时
     start_time = time.time()
-
-    # Create result directory
-    results_dir = Path(config["results_dir"]) / selections["ticker"] / selections["analysis_date"]
-    results_dir.mkdir(parents=True, exist_ok=True)
-    report_dir = results_dir / "reports"
-    report_dir.mkdir(parents=True, exist_ok=True)
-    log_file = results_dir / "message_tool.log"
-    log_file.touch(exist_ok=True)
 
     def save_message_decorator(obj, func_name):
         """
@@ -1324,150 +1436,233 @@ def run_analysis(quick: bool = False):
 
     # Now start the display layout
     layout = create_layout()
+    final_state = None
 
-    with Live(layout, refresh_per_second=4) as live:
-        # Initial display
-        update_display(layout, stats_handler=stats_handler, start_time=start_time)
-
-        # Add initial messages
-        message_buffer.add_message("System", f"Selected ticker: {selections['ticker']}")
-        message_buffer.add_message(
-            "System", f"Analysis date: {selections['analysis_date']}"
-        )
-        message_buffer.add_message(
-            "System",
-            f"Selected analysts: {', '.join(analyst.value for analyst in selections['analysts'])}",
-        )
-        if quick:
-            message_buffer.add_message(
-                "System",
-                "Quick mode enabled: debate rounds and risk discussion rounds are both forced to 1.",
-            )
-        update_display(layout, stats_handler=stats_handler, start_time=start_time)
-
-        # 将首位分析师状态更新为 in_progress
-        first_analyst = f"{selections['analysts'][0].value.capitalize()} Analyst"
-        message_buffer.update_agent_status(first_analyst, "in_progress")
-        update_display(layout, stats_handler=stats_handler, start_time=start_time)
-
-        # Create spinner text
-        spinner_text = (
-            f"Analyzing {selections['ticker']} on {selections['analysis_date']}..."
-        )
-        update_display(layout, spinner_text, stats_handler=stats_handler, start_time=start_time)
-
-        # 初始化状态，并获取携带回调的图调用参数
-        init_agent_state = graph.propagator.create_initial_state(
-            selections["ticker"], selections["analysis_date"]
-        )
-        # Pass callbacks to graph config for tool execution tracking
-        # (LLM tracking is handled separately via LLM constructor)
-        args = graph.propagator.get_graph_args(callbacks=[stats_handler])
-
-        # Stream the analysis
-        trace = []
-        for chunk in graph.graph.stream(init_agent_state, **args):
-            # 如存在消息则处理，并基于消息 ID 跳过重复项
-            if len(chunk["messages"]) > 0:
-                last_message = chunk["messages"][-1]
-                msg_id = getattr(last_message, "id", None)
-
-                if msg_id != message_buffer._last_message_id:
-                    message_buffer._last_message_id = msg_id
-
-                    # Add message to buffer
-                    msg_type, content = classify_message_type(last_message)
-                    if content and content.strip():
-                        message_buffer.add_message(msg_type, content)
-
-                    # 处理工具调用
-                    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-                        for tool_call in last_message.tool_calls:
-                            if isinstance(tool_call, dict):
-                                message_buffer.add_tool_call(
-                                    tool_call["name"], tool_call["args"]
-                                )
-                            else:
-                                message_buffer.add_tool_call(tool_call.name, tool_call.args)
-
-            # 根据报告状态更新分析师状态（每个数据块都会执行）
-            update_analyst_statuses(message_buffer, chunk)
-
-            # 研究团队：处理投资辩论状态
-            if chunk.get("investment_debate_state"):
-                debate_state = chunk["investment_debate_state"]
-                bull_hist = debate_state.get("bull_history", "").strip()
-                bear_hist = debate_state.get("bear_history", "").strip()
-                judge = debate_state.get("judge_decision", "").strip()
-
-                if bull_hist or bear_hist:
-                    update_research_team_status("in_progress")
-                if judge:
-                    update_research_team_status("completed")
-                    message_buffer.update_agent_status("Trader", "in_progress")
-
-            # Trading Team
-            if chunk.get("trader_investment_plan"):
-                if message_buffer.agent_status.get("Trader") != "completed":
-                    message_buffer.update_agent_status("Trader", "completed")
-                    message_buffer.update_agent_status("Aggressive Analyst", "in_progress")
-
-            # 风险管理团队：处理风险辩论状态
-            if chunk.get("risk_debate_state"):
-                risk_state = chunk["risk_debate_state"]
-                agg_hist = risk_state.get("aggressive_history", "").strip()
-                con_hist = risk_state.get("conservative_history", "").strip()
-                neu_hist = risk_state.get("neutral_history", "").strip()
-                judge = risk_state.get("judge_decision", "").strip()
-
-                if agg_hist:
-                    if message_buffer.agent_status.get("Aggressive Analyst") != "completed":
-                        message_buffer.update_agent_status("Aggressive Analyst", "in_progress")
-                if con_hist:
-                    if message_buffer.agent_status.get("Conservative Analyst") != "completed":
-                        message_buffer.update_agent_status("Conservative Analyst", "in_progress")
-                if neu_hist:
-                    if message_buffer.agent_status.get("Neutral Analyst") != "completed":
-                        message_buffer.update_agent_status("Neutral Analyst", "in_progress")
-                if judge:
-                    if message_buffer.agent_status.get("Portfolio Manager") != "completed":
-                        message_buffer.update_agent_status("Portfolio Manager", "in_progress")
-                        message_buffer.update_agent_status("Aggressive Analyst", "completed")
-                        message_buffer.update_agent_status("Conservative Analyst", "completed")
-                        message_buffer.update_agent_status("Neutral Analyst", "completed")
-                        message_buffer.update_agent_status("Portfolio Manager", "completed")
-                        message_buffer.update_agent_status("Report Finalizer", "in_progress")
-
-            for section in message_buffer.report_sections.keys():
-                if chunk.get(section):
-                    message_buffer.update_report_section(section, chunk[section])
-
-            if any(chunk.get(section) for section in message_buffer.report_sections):
-                message_buffer.update_agent_status("Report Finalizer", "completed")
-
-            # 更新界面显示
+    try:
+        with Live(layout, refresh_per_second=4) as live:
+            # Initial display
             update_display(layout, stats_handler=stats_handler, start_time=start_time)
 
-            trace.append(chunk)
+            # Add initial messages
+            message_buffer.add_message("System", f"Selected ticker: {selections['ticker']}")
+            message_buffer.add_message(
+                "System", f"Analysis date: {selections['analysis_date']}"
+            )
+            message_buffer.add_message(
+                "System",
+                f"Selected analysts: {', '.join(analyst.value for analyst in selections['analysts'])}",
+            )
+            if quick:
+                message_buffer.add_message(
+                    "System",
+                    "Quick mode enabled: debate rounds and risk discussion rounds are both forced to 1.",
+                )
+            update_display(layout, stats_handler=stats_handler, start_time=start_time)
 
-        # 获取最终状态与决策
-        final_state = trace[-1]
-        decision = graph.process_signal(final_state["final_trade_decision"])
+            # 将首位分析师状态更新为 in_progress
+            first_analyst = f"{selections['analysts'][0].value.capitalize()} Analyst"
+            message_buffer.update_agent_status(first_analyst, "in_progress")
+            update_display(layout, stats_handler=stats_handler, start_time=start_time)
 
-        # 将所有代理状态更新为 completed
-        for agent in message_buffer.agent_status:
-            message_buffer.update_agent_status(agent, "completed")
+            # Create spinner text
+            spinner_text = (
+                f"Analyzing {selections['ticker']} on {selections['analysis_date']}..."
+            )
+            update_display(layout, spinner_text, stats_handler=stats_handler, start_time=start_time)
 
-        message_buffer.add_message(
-            "System", f"Completed analysis for {selections['analysis_date']}"
-        )
+            # 初始化状态，并获取携带回调与 thread_id 的图调用参数
+            init_agent_state = graph.propagator.create_initial_state(
+                selections["ticker"], selections["analysis_date"]
+            )
+            args = graph.get_runtime_args(selections["ticker"], selections["analysis_date"])
+            resume_snapshot = graph.graph.get_state(args["config"])
+            stream_input = init_agent_state
+            if should_resume_from_snapshot(resume_snapshot):
+                stream_input = None
+                next_nodes = ", ".join(getattr(resume_snapshot, "next", ()) or ())
+                message_buffer.add_message(
+                    "System",
+                    f"Resuming interrupted run from checkpoint{f': {next_nodes}' if next_nodes else ''}.",
+                )
+                persist_snapshot(snapshot_file, resume_snapshot, reason="resume_detected")
 
-        # 更新最终报告分段
-        for section in message_buffer.report_sections.keys():
-            if section in final_state:
-                message_buffer.update_report_section(section, final_state[section])
+            # Stream the analysis
+            trace = []
+            try:
+                for chunk in graph.graph.stream(stream_input, **args):
+                    # 如存在消息则处理，并基于消息 ID 跳过重复项
+                    if len(chunk["messages"]) > 0:
+                        last_message = chunk["messages"][-1]
+                        msg_id = getattr(last_message, "id", None)
 
-        update_display(layout, stats_handler=stats_handler, start_time=start_time)
+                        if msg_id != message_buffer._last_message_id:
+                            message_buffer._last_message_id = msg_id
+
+                            # Add message to buffer
+                            msg_type, content = classify_message_type(last_message)
+                            if content and content.strip():
+                                message_buffer.add_message(msg_type, content)
+
+                            # 处理工具调用
+                            if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+                                for tool_call in last_message.tool_calls:
+                                    if isinstance(tool_call, dict):
+                                        message_buffer.add_tool_call(
+                                            tool_call["name"], tool_call["args"]
+                                        )
+                                    else:
+                                        message_buffer.add_tool_call(tool_call.name, tool_call.args)
+
+                    # 根据报告状态更新分析师状态（每个数据块都会执行）
+                    update_analyst_statuses(message_buffer, chunk)
+
+                    # 研究团队：处理投资辩论状态
+                    if chunk.get("investment_debate_state"):
+                        debate_state = chunk["investment_debate_state"]
+                        bull_hist = debate_state.get("bull_history", "").strip()
+                        bear_hist = debate_state.get("bear_history", "").strip()
+                        judge = debate_state.get("judge_decision", "").strip()
+
+                        if bull_hist or bear_hist:
+                            update_research_team_status("in_progress")
+                        if judge:
+                            update_research_team_status("completed")
+                            message_buffer.update_agent_status("Trader", "in_progress")
+
+                    # Trading Team
+                    if chunk.get("trader_investment_plan"):
+                        if message_buffer.agent_status.get("Trader") != "completed":
+                            message_buffer.update_agent_status("Trader", "completed")
+                            message_buffer.update_agent_status("Aggressive Analyst", "in_progress")
+
+                    # 风险管理团队：处理风险辩论状态
+                    if chunk.get("risk_debate_state"):
+                        risk_state = chunk["risk_debate_state"]
+                        agg_hist = risk_state.get("aggressive_history", "").strip()
+                        con_hist = risk_state.get("conservative_history", "").strip()
+                        neu_hist = risk_state.get("neutral_history", "").strip()
+                        judge = risk_state.get("judge_decision", "").strip()
+
+                        if agg_hist:
+                            if message_buffer.agent_status.get("Aggressive Analyst") != "completed":
+                                message_buffer.update_agent_status("Aggressive Analyst", "in_progress")
+                        if con_hist:
+                            if message_buffer.agent_status.get("Conservative Analyst") != "completed":
+                                message_buffer.update_agent_status("Conservative Analyst", "in_progress")
+                        if neu_hist:
+                            if message_buffer.agent_status.get("Neutral Analyst") != "completed":
+                                message_buffer.update_agent_status("Neutral Analyst", "in_progress")
+                        if judge:
+                            if message_buffer.agent_status.get("Portfolio Manager") != "completed":
+                                message_buffer.update_agent_status("Portfolio Manager", "in_progress")
+                                message_buffer.update_agent_status("Aggressive Analyst", "completed")
+                                message_buffer.update_agent_status("Conservative Analyst", "completed")
+                                message_buffer.update_agent_status("Neutral Analyst", "completed")
+                                message_buffer.update_agent_status("Portfolio Manager", "completed")
+                                message_buffer.update_agent_status("Report Finalizer", "in_progress")
+
+                    for section in message_buffer.report_sections.keys():
+                        if chunk.get(section):
+                            message_buffer.update_report_section(section, chunk[section])
+
+                    if any(chunk.get(section) for section in message_buffer.report_sections):
+                        message_buffer.update_agent_status("Report Finalizer", "completed")
+
+                    # 更新界面显示
+                    update_display(layout, stats_handler=stats_handler, start_time=start_time)
+
+                    trace.append(chunk)
+                    persist_snapshot(
+                        snapshot_file,
+                        graph.graph.get_state(args["config"]),
+                        reason="stream_progress",
+                    )
+            except KeyboardInterrupt as exc:
+                append_error_log(
+                    error_log_file,
+                    exc,
+                    context={
+                        "phase": "stream_keyboard_interrupt",
+                        "ticker": selections["ticker"],
+                        "analysis_date": selections["analysis_date"],
+                    },
+                )
+                persist_recovery_artifacts(
+                    graph,
+                    args["config"],
+                    selections["ticker"],
+                    snapshot_file,
+                    partial_report_dir,
+                    error_log_file,
+                    reason="keyboard_interrupt",
+                )
+                console.print("\n[yellow]Run interrupted. Checkpoint and partial report saved.[/yellow]")
+                console.print(f"[yellow]Resume snapshot:[/yellow] {snapshot_file.resolve()}")
+                console.print(f"[yellow]Partial report:[/yellow] {partial_report_dir.resolve()}")
+                return
+            except Exception as exc:
+                append_error_log(
+                    error_log_file,
+                    exc,
+                    context={
+                        "phase": "stream_exception",
+                        "ticker": selections["ticker"],
+                        "analysis_date": selections["analysis_date"],
+                    },
+                )
+                snapshot = persist_recovery_artifacts(
+                    graph,
+                    args["config"],
+                    selections["ticker"],
+                    snapshot_file,
+                    partial_report_dir,
+                    error_log_file,
+                    reason="exception",
+                )
+                if getattr(snapshot, "tasks", None):
+                    for task in snapshot.tasks:
+                        if getattr(task, "error", None):
+                            message_buffer.add_message(
+                                "Error",
+                                f"{getattr(task, 'name', 'unknown task')} failed: {task.error}",
+                            )
+                update_display(layout, stats_handler=stats_handler, start_time=start_time)
+                console.print(f"\n[red]Run failed: {type(exc).__name__}: {exc}[/red]")
+                console.print(f"[red]Detailed error log:[/red] {error_log_file.resolve()}")
+                console.print(f"[red]Resume snapshot:[/red] {snapshot_file.resolve()}")
+                console.print(f"[red]Partial report:[/red] {partial_report_dir.resolve()}")
+                return
+
+            # 获取最终状态与决策
+            if trace:
+                final_state = trace[-1]
+            else:
+                final_state = build_partial_final_state(
+                    graph.graph.get_state(args["config"]).values
+                )
+            decision = graph.process_signal(final_state["final_trade_decision"])
+
+            # 将所有代理状态更新为 completed
+            for agent in message_buffer.agent_status:
+                message_buffer.update_agent_status(agent, "completed")
+
+            message_buffer.add_message(
+                "System", f"Completed analysis for {selections['analysis_date']}"
+            )
+
+            # 更新最终报告分段
+            for section in message_buffer.report_sections.keys():
+                if section in final_state:
+                    message_buffer.update_report_section(section, final_state[section])
+
+            persist_snapshot(
+                snapshot_file,
+                graph.graph.get_state(args["config"]),
+                reason="completed",
+            )
+            update_display(layout, stats_handler=stats_handler, start_time=start_time)
+    finally:
+        remove_run_logger(run_logger, run_log_handler)
 
     # Post-analysis prompts (outside Live context for clean interaction)
     console.print("\n[bold cyan]Analysis Complete![/bold cyan]\n")

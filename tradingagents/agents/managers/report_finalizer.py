@@ -1,3 +1,4 @@
+import logging
 import re
 
 from tradingagents.agents.utils.agent_utils import get_final_output_language
@@ -18,6 +19,7 @@ _ENGLISH_LEAK_PATTERNS = [
     r"(?m)^# .*\b(report|analysis|plan|decision)\b",
     r"(?m)^## [IVX]+\.",
 ]
+logger = logging.getLogger(__name__)
 
 
 def _needs_language_cleanup(text: str, final_language: str) -> bool:
@@ -73,11 +75,17 @@ Report:
 
     try:
         response = llm.invoke(prompt)
-    except Exception:
-        return report_text
+    except Exception as exc:
+        logger.exception("Final report cleanup failed for %s", report_label)
+        raise RuntimeError(
+            f"Final report cleanup failed for {report_label}: {exc}"
+        ) from exc
 
     cleaned = getattr(response, "content", "")
-    return cleaned.strip() or report_text
+    if cleaned and cleaned.strip():
+        return cleaned.strip()
+
+    raise RuntimeError(f"Final report cleanup returned empty content for {report_label}")
 
 
 def create_report_finalizer(llm):

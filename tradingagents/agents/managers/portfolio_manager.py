@@ -1,6 +1,8 @@
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
+    get_execution_constraints_prompt,
     get_final_output_language,
+    get_market_descriptor,
     get_user_facing_report_instruction,
 )
 
@@ -27,7 +29,10 @@ def create_portfolio_manager(llm, memory):
         返回：
             dict: 需要回写到图状态中的状态补丁。
         """
-        instrument_context = build_instrument_context(state["company_of_interest"])
+        ticker = state["company_of_interest"]
+        instrument_context = build_instrument_context(ticker)
+        market_descriptor = get_market_descriptor(ticker)
+        execution_constraints = get_execution_constraints_prompt(ticker)
         output_language = get_final_output_language()
         use_chinese_labels = output_language.lower() == "chinese"
         rating_heading = "评级" if use_chinese_labels else "Rating"
@@ -49,7 +54,7 @@ def create_portfolio_manager(llm, memory):
         for i, rec in enumerate(past_memories, 1):
             past_memory_str += rec["recommendation"] + "\n\n"
 
-        prompt = f"""As the A-share Portfolio Manager, synthesize the risk analysts' debate and deliver the final trading decision.
+        prompt = f"""As the {market_descriptor} Portfolio Manager, synthesize the risk analysts' debate and deliver the final trading decision.
 
 {instrument_context}
 
@@ -68,7 +73,7 @@ def create_portfolio_manager(llm, memory):
 
 **Required Output Structure:**
 1. **{rating_heading}**: State one of Buy / Overweight / Hold / Underweight / Sell.
-2. **{summary_heading}**: A concise action plan covering entry strategy, position sizing, key risk levels, expected holding period, and A-share execution constraints.
+2. **{summary_heading}**: A concise action plan covering entry strategy, position sizing, key risk levels, expected holding period, and market-specific execution constraints.
 3. **{thesis_heading}**: Detailed reasoning anchored in the analysts' debate, policy context, and past reflections.
 
 ---
@@ -78,7 +83,7 @@ def create_portfolio_manager(llm, memory):
 
 ---
 
-Be decisive and ground every conclusion in specific evidence from the analysts. Explicitly mention T+1,涨跌停,流动性, and whether execution risk changes the final action.{get_user_facing_report_instruction()} Keep the rating keyword itself in English as one of Buy / Overweight / Hold / Underweight / Sell for downstream parsing, but translate all headings and explanatory text into the selected final output language."""
+Be decisive and ground every conclusion in specific evidence from the analysts. Explicitly discuss {execution_constraints}, and whether execution risk changes the final action.{get_user_facing_report_instruction()} Keep the rating keyword itself in English as one of Buy / Overweight / Hold / Underweight / Sell for downstream parsing, but translate all headings and explanatory text into the selected final output language."""
 
         response = llm.invoke(prompt)
 

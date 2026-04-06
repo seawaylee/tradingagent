@@ -1,6 +1,11 @@
 import re
 
-from tradingagents.agents.utils.agent_utils import build_instrument_context, get_user_facing_report_instruction
+from tradingagents.agents.utils.agent_utils import (
+    build_instrument_context,
+    get_execution_constraints_prompt,
+    get_market_descriptor,
+    get_user_facing_report_instruction,
+)
 
 
 _POLICY_SENSITIVE_REPLACEMENTS = [
@@ -79,7 +84,10 @@ def create_research_manager(llm, memory):
         返回：
             dict: 需要回写到图状态中的状态补丁。
         """
-        instrument_context = build_instrument_context(state["company_of_interest"])
+        ticker = state["company_of_interest"]
+        instrument_context = build_instrument_context(ticker)
+        market_descriptor = get_market_descriptor(ticker)
+        execution_constraints = get_execution_constraints_prompt(ticker)
         history = _sanitize_financial_prompt_text(
             state["investment_debate_state"].get("history", "")
         )
@@ -94,9 +102,9 @@ def create_research_manager(llm, memory):
         past_memories = memory.get_memories(curr_situation, n_matches=2)
         past_memory_str = _build_memory_text(past_memories)
 
-        prompt = f"""As the A-share research manager and debate facilitator, critically evaluate this round of debate and make a definitive decision: align with the bear analyst, align with the bull analyst, or choose Hold only if the A-share setup truly lacks edge.
+        prompt = f"""As the {market_descriptor} research manager and debate facilitator, critically evaluate this round of debate and make a definitive decision: align with the bear analyst, align with the bull analyst, or choose Hold only if the setup truly lacks edge.
 
-Summarize the key points from both sides concisely, focusing on the most compelling evidence or reasoning. Your recommendation—Buy, Sell, or Hold—must be clear and actionable. Avoid defaulting to Hold simply because both sides have valid points; commit to a stance grounded in the debate's strongest arguments and A-share execution constraints.
+Summarize the key points from both sides concisely, focusing on the most compelling evidence or reasoning. Your recommendation—Buy, Sell, or Hold—must be clear and actionable. Avoid defaulting to Hold simply because both sides have valid points; commit to a stance grounded in the debate's strongest arguments and execution constraints such as {execution_constraints}.
 
 Additionally, develop a detailed investment plan for the trader. This should include:
 

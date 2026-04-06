@@ -56,6 +56,7 @@ DEFAULT_CONFIG = {
     # 超时配置（秒）
     "timeout": 180,
     # 数据供应商配置
+    "allow_vendor_fallback": False,
     # 类别级配置（该类别下工具默认沿用）
     "data_vendors": {
         "core_stock_apis": "akshare",

@@ -2,8 +2,11 @@ import time
 import json
 
 from tradingagents.agents.utils.agent_utils import (
+    get_execution_constraints_prompt,
     get_internal_language_instruction,
     get_internal_language,
+    get_market_descriptor,
+    get_market_policy_report_label,
 )
 
 
@@ -42,8 +45,12 @@ def create_neutral_debator(llm):
         trader_decision = state["trader_investment_plan"]
         output_language = get_internal_language()
         speaker_label = "中性派分析师" if output_language.lower() == "chinese" else "Neutral Analyst"
+        ticker = state["company_of_interest"]
+        market_descriptor = get_market_descriptor(ticker)
+        execution_constraints = get_execution_constraints_prompt(ticker)
+        market_policy_report_label = get_market_policy_report_label(ticker)
 
-        prompt = f"""As the Neutral Risk Analyst for A-shares, your role is to provide a balanced perspective, weighing both the potential benefits and risks of the trader's decision or plan. Judge whether the setup supports participation, reduced sizing, or simple observation under A-share market conditions. Here is the trader's decision:
+        prompt = f"""As the Neutral Risk Analyst for {market_descriptor}s, your role is to provide a balanced perspective, weighing both the potential benefits and risks of the trader's decision or plan. Judge whether the setup supports participation, reduced sizing, or simple observation under {market_descriptor} market conditions. Here is the trader's decision:
 
 {trader_decision}
 
@@ -51,11 +58,11 @@ Your task is to challenge both the Aggressive and Conservative Analysts, pointin
 
 Market Research Report: {market_research_report}
 Social Media Sentiment Report: {sentiment_report}
-Latest A-share Market and Policy Report: {news_report}
+{market_policy_report_label}: {news_report}
 Company Fundamentals Report: {fundamentals_report}
 Here is the current conversation history: {history} Here is the last response from the aggressive analyst: {current_aggressive_response} Here is the last response from the conservative analyst: {current_conservative_response}. If there are no responses from the other viewpoints yet, present your own argument based on the available data.
 
-Engage actively by analyzing both sides critically, addressing weaknesses in the aggressive and conservative arguments to advocate for a more balanced approach. Explicitly discuss sizing, trigger prices, and whether the trade still makes sense once A-share liquidity and execution constraints are considered. Output conversationally without special formatting.{get_internal_language_instruction()}"""
+Engage actively by analyzing both sides critically, addressing weaknesses in the aggressive and conservative arguments to advocate for a more balanced approach. Explicitly discuss sizing, trigger prices, and whether the trade still makes sense once liquidity and execution constraints such as {execution_constraints} are considered. Output conversationally without special formatting.{get_internal_language_instruction()}"""
 
         response = llm.invoke(prompt)
 

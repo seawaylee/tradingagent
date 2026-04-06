@@ -3,6 +3,8 @@ import time
 import json
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
+    get_fundamental_focus_prompt,
+    get_market_indefinite_descriptor,
     get_balance_sheet,
     get_cashflow,
     get_fundamentals,
@@ -33,7 +35,10 @@ def create_fundamentals_analyst(llm):
             dict: 需要回写到图状态中的状态补丁。
         """
         current_date = state["trade_date"]
-        instrument_context = build_instrument_context(state["company_of_interest"])
+        ticker = state["company_of_interest"]
+        instrument_context = build_instrument_context(ticker)
+        market_descriptor = get_market_indefinite_descriptor(ticker)
+        market_focus = get_fundamental_focus_prompt(ticker)
 
         tools = [
             get_fundamentals,
@@ -43,7 +48,7 @@ def create_fundamentals_analyst(llm):
         ]
 
         system_message = (
-            "You are an A-share fundamentals analyst. Analyze the listed company's business profile,主营构成, revenue quality, profit quality, cash flow, leverage, margins, ROE, and balance-sheet risks. Pay special attention to A-share specific fundamental signals such as 归母净利润, 扣非净利润, 经营现金流, 存货, 应收, 商誉, and the stability of the core business. Explain whether the latest fundamentals support a trading opportunity or warn of valuation and quality risk."
+            f"You are {market_descriptor} fundamentals analyst. Analyze the listed company's business profile,主营构成, revenue quality, profit quality, cash flow, leverage, margins, ROE, and balance-sheet risks. {market_focus} Explain whether the latest fundamentals support a trading opportunity or warn of valuation and quality risk."
             + " Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."
             + " Use the available tools: `get_fundamentals` for comprehensive company analysis, `get_balance_sheet`, `get_cashflow`, and `get_income_statement` for specific financial statements."
             + get_user_facing_report_instruction(),

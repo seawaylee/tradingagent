@@ -38,6 +38,11 @@ from .setup import GraphSetup
 from .propagation import Propagator
 from .reflection import Reflector
 from .signal_processing import SignalProcessor
+from tradingagents.runtime_support import (
+    FileCheckpointSaver,
+    build_partial_final_state,
+    build_run_thread_id,
+)
 
 
 class TradingAgentsGraph:
@@ -133,9 +138,82 @@ class TradingAgentsGraph:
         self.curr_state = None
         self.ticker = None
         self.log_states_dict = {}  # 日期到完整状态字典的映射
+        self.checkpointer = FileCheckpointSaver(self._resolve_checkpoint_path())
 
         # 构建图结构
-        self.graph = self.graph_setup.setup_graph(selected_analysts)
+        self.graph = self.graph_setup.setup_graph(
+            selected_analysts,
+            checkpointer=self.checkpointer,
+        )
+
+    def _resolve_checkpoint_path(self) -> Path:
+        """
+        解析当前运行使用的 checkpoint 文件路径。
+
+        返回：
+            Path: checkpoint 文件路径。
+        """
+        checkpoint_path = self.config.get("checkpoint_path")
+        if checkpoint_path:
+            return Path(checkpoint_path)
+
+        checkpoint_dir = Path(
+            self.config.get(
+                "checkpoint_dir",
+                os.path.join(
+                    self.config.get("local_data_dir", self.config["project_dir"]),
+                    "checkpoints",
+                ),
+            )
+        )
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        return checkpoint_dir / "graph_checkpoint.pkl"
+
+    def build_thread_id(self, ticker: str, trade_date: str) -> str:
+        """
+        为当前分析任务构造稳定的 thread_id。
+
+        参数：
+            ticker: 股票代码。
+            trade_date: 交易日期。
+
+        返回：
+            str: 可复用的 thread_id。
+        """
+        return build_run_thread_id(
+            ticker=ticker,
+            trade_date=trade_date,
+            run_mode=self.config.get("run_mode", "analysis"),
+        )
+
+    def get_runtime_args(self, ticker: str, trade_date: str) -> Dict[str, Any]:
+        """
+        获取带续跑 thread_id 的图参数。
+
+        参数：
+            ticker: 股票代码。
+            trade_date: 交易日期。
+
+        返回：
+            Dict[str, Any]: 图调用参数。
+        """
+        return self.propagator.get_graph_args(
+            callbacks=self.callbacks,
+            thread_id=self.build_thread_id(ticker, trade_date),
+        )
+
+    def get_resume_state(self, ticker: str, trade_date: str):
+        """
+        获取当前任务最近一次 checkpoint 状态。
+
+        参数：
+            ticker: 股票代码。
+            trade_date: 交易日期。
+
+        返回：
+            Any: LangGraph 状态快照。
+        """
+        return self.graph.get_state(self.get_runtime_args(ticker, trade_date)["config"])
 
     def _get_provider_kwargs(self) -> Dict[str, Any]:
         """
@@ -250,22 +328,37 @@ class TradingAgentsGraph:
         init_agent_state = self.propagator.create_initial_state(
             company_name, trade_date
         )
-        args = self.propagator.get_graph_args()
+        args = self.get_runtime_args(company_name, trade_date)
+        resume_state = self.graph.get_state(args["config"])
+        should_resume = bool(getattr(resume_state, "created_at", None)) and bool(
+            getattr(resume_state, "next", ()) or getattr(resume_state, "tasks", ())
+        )
+        graph_input = None if should_resume else init_agent_state
 
-        if self.debug:
-            # 调试模式：保留完整追踪
-            trace = []
-            for chunk in self.graph.stream(init_agent_state, **args):
-                if len(chunk["messages"]) == 0:
-                    pass
-                else:
-                    chunk["messages"][-1].pretty_print()
+        try:
+            if self.debug:
+                # 调试模式：保留完整追踪
+                trace = []
+                for chunk in self.graph.stream(graph_input, **args):
+                    if len(chunk["messages"]) > 0:
+                        chunk["messages"][-1].pretty_print()
                     trace.append(chunk)
 
-            final_state = trace[-1]
-        else:
-            # 标准模式：直接执行，不保留追踪
-            final_state = self.graph.invoke(init_agent_state, **args)
+                if trace:
+                    final_state = trace[-1]
+                else:
+                    final_state = build_partial_final_state(
+                        self.graph.get_state(args["config"]).values
+                    )
+            else:
+                # 标准模式：直接执行，不保留追踪
+                final_state = self.graph.invoke(graph_input, **args)
+        except Exception:
+            snapshot = self.graph.get_state(args["config"])
+            if getattr(snapshot, "values", None):
+                self.curr_state = build_partial_final_state(snapshot.values)
+                self._log_state(trade_date, self.curr_state)
+            raise
 
         # 保存当前状态以供反思模块使用
         self.curr_state = final_state

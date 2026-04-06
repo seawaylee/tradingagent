@@ -4,6 +4,8 @@ import json
 
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
+    get_execution_constraints_prompt,
+    get_market_descriptor,
     get_user_facing_report_instruction,
 )
 
@@ -32,6 +34,8 @@ def create_trader(llm, memory):
         """
         company_name = state["company_of_interest"]
         instrument_context = build_instrument_context(company_name)
+        market_descriptor = get_market_descriptor(company_name)
+        execution_constraints = get_execution_constraints_prompt(company_name)
         investment_plan = state["investment_plan"]
         market_research_report = state["market_report"]
         sentiment_report = state["sentiment_report"]
@@ -50,13 +54,13 @@ def create_trader(llm, memory):
 
         context = {
             "role": "user",
-            "content": f"Based on a comprehensive A-share analysis for {company_name}, here is an investment plan. {instrument_context} This plan incorporates technical structure, policy and market news, fundamentals, and sentiment. Use this plan as the foundation for your next A-share trading decision.\n\nProposed Investment Plan: {investment_plan}\n\nLeverage these insights to make an informed and strategic decision.",
+            "content": f"Based on a comprehensive {market_descriptor} analysis for {company_name}, here is an investment plan. {instrument_context} This plan incorporates technical structure, policy and market news, fundamentals, and sentiment. Use this plan as the foundation for your next {market_descriptor} trading decision.\n\nProposed Investment Plan: {investment_plan}\n\nLeverage these insights to make an informed and strategic decision.",
         }
 
         messages = [
             {
                 "role": "system",
-                "content": f"""You are an A-share trader. Based on the analysis, provide a specific recommendation to buy, sell, or hold. Your reasoning must reflect A-share execution constraints including T+1,涨跌停,成交额 and换手率 quality, and whether a theme may continue or fade. Apply lessons from past decisions to strengthen your analysis. Here are reflections from similar situations you traded in and the lessons learned: {past_memory_str}{get_user_facing_report_instruction()} Keep all explanatory content in the selected final output language, but preserve the final machine-readable line exactly as 'FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**'.""",
+                "content": f"""You are a {market_descriptor} trader. Based on the analysis, provide a specific recommendation to buy, sell, or hold. Your reasoning must reflect execution constraints including {execution_constraints}, and whether the setup may continue or fade. Apply lessons from past decisions to strengthen your analysis. Here are reflections from similar situations you traded in and the lessons learned: {past_memory_str}{get_user_facing_report_instruction()} Keep all explanatory content in the selected final output language, but preserve the final machine-readable line exactly as 'FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**'.""",
             },
             context,
         ]

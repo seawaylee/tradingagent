@@ -54,7 +54,9 @@ class GraphSetup:
         self.conditional_logic = conditional_logic
 
     def setup_graph(
-        self, selected_analysts=["market", "social", "news", "fundamentals"]
+        self,
+        selected_analysts=["market", "social", "news", "fundamentals"],
+        checkpointer=None,
     ):
         """
         搭建并编译代理工作流图。
@@ -218,4 +220,4 @@ class GraphSetup:
         workflow.add_edge("Report Finalizer", END)
 
         # 编译并返回图结构
-        return workflow.compile()
+        return workflow.compile(checkpointer=checkpointer)

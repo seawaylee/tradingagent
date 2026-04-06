@@ -3,8 +3,11 @@ import time
 import json
 
 from tradingagents.agents.utils.agent_utils import (
+    get_execution_constraints_prompt,
     get_internal_language_instruction,
     get_internal_language,
+    get_market_descriptor,
+    get_market_policy_report_label,
 )
 
 
@@ -43,8 +46,12 @@ def create_conservative_debator(llm):
         trader_decision = state["trader_investment_plan"]
         output_language = get_internal_language()
         speaker_label = "保守派分析师" if output_language.lower() == "chinese" else "Conservative Analyst"
+        ticker = state["company_of_interest"]
+        market_descriptor = get_market_descriptor(ticker)
+        execution_constraints = get_execution_constraints_prompt(ticker)
+        market_policy_report_label = get_market_policy_report_label(ticker)
 
-        prompt = f"""As the Conservative Risk Analyst for A-shares, your primary objective is to protect assets, minimize volatility, and avoid being trapped by high-turnover themes, weak liquidity, and涨跌停 execution risk. When evaluating the trader's decision or plan, critically examine high-risk elements, pointing out where the decision may expose the portfolio to undue risk and where more cautious alternatives could secure better risk-adjusted returns. Here is the trader's decision:
+        prompt = f"""As the Conservative Risk Analyst for {market_descriptor}s, your primary objective is to protect assets, minimize volatility, and avoid being trapped by high-turnover themes, weak liquidity, and execution risk. When evaluating the trader's decision or plan, critically examine high-risk elements, pointing out where the decision may expose the portfolio to undue risk and where more cautious alternatives could secure better risk-adjusted returns. Here is the trader's decision:
 
 {trader_decision}
 
@@ -52,11 +59,11 @@ Your task is to actively counter the arguments of the Aggressive and Neutral Ana
 
 Market Research Report: {market_research_report}
 Social Media Sentiment Report: {sentiment_report}
-Latest A-share Market and Policy Report: {news_report}
+{market_policy_report_label}: {news_report}
 Company Fundamentals Report: {fundamentals_report}
 Here is the current conversation history: {history} Here is the last response from the aggressive analyst: {current_aggressive_response} Here is the last response from the neutral analyst: {current_neutral_response}. If there are no responses from the other viewpoints yet, present your own argument based on the available data.
 
-Engage by questioning their optimism and emphasizing the potential downsides they may have overlooked, including监管风险、情绪退潮、缩量下跌 and inability to exit near跌停. Output conversationally without special formatting.{get_internal_language_instruction()}"""
+Engage by questioning their optimism and emphasizing the potential downsides they may have overlooked, including监管风险、情绪退潮、缩量下跌, and execution friction under constraints such as {execution_constraints}. Output conversationally without special formatting.{get_internal_language_instruction()}"""
 
         response = llm.invoke(prompt)
 

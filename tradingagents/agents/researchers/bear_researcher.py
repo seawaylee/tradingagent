@@ -1,6 +1,8 @@
 from tradingagents.agents.utils.agent_utils import (
     get_internal_language_instruction,
     get_internal_language,
+    get_market_descriptor,
+    get_market_policy_report_label,
 )
 
 
@@ -44,6 +46,9 @@ def create_bear_researcher(llm, memory):
 
         output_language = get_internal_language()
         speaker_label = "空头研究员" if output_language.lower() == "chinese" else "Bear Analyst"
+        ticker = state["company_of_interest"]
+        market_descriptor = get_market_descriptor(ticker)
+        market_policy_report_label = get_market_policy_report_label(ticker)
 
         prompt = f"""You are a Bear Analyst making the case against investing in the stock. Your goal is to present a well-reasoned argument emphasizing risks, challenges, and negative indicators. Leverage the provided research and data to highlight potential downsides and counter bullish arguments effectively.
 
@@ -60,12 +65,12 @@ Resources available:
 
 Market research report: {market_research_report}
 Social media sentiment report: {sentiment_report}
-Latest A-share market and policy news: {news_report}
+{market_policy_report_label}: {news_report}
 Company fundamentals report: {fundamentals_report}
 Conversation history of the debate: {history}
 Last bull argument: {current_response}
 Reflections from similar situations and lessons learned: {past_memory_str}
-Use this information to deliver a compelling bear argument for the A-share market, including policy disappointment,估值过高,业绩不及预期,流动性退潮, or题材退潮风险. Refute the bull's claims and learn from prior lessons.
+Use this information to deliver a compelling bear argument for the {market_descriptor} market, including policy disappointment,估值过高,业绩不及预期,流动性退潮, or题材退潮风险. Refute the bull's claims and learn from prior lessons.
 {get_internal_language_instruction()}"""
 
         response = llm.invoke(prompt)

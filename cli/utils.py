@@ -4,7 +4,7 @@ from typing import List, Optional, Tuple, Dict
 from rich.console import Console
 
 from cli.models import AnalystType
-from tradingagents.dataflows.a_share_common import normalize_ashare_symbol
+from tradingagents.dataflows.market_symbols import normalize_market_symbol
 from tradingagents.llm_clients.model_catalog import get_model_options
 
 console = Console()
@@ -46,15 +46,15 @@ def get_ticker() -> str:
 
 def normalize_ticker_symbol(ticker: str) -> str:
     """
-    将股票代码输入规范化为标准 A 股代码。
+    将股票代码输入规范化为标准市场代码。
     
     参数：
-        ticker: 待分析公司的 A 股股票代码。
+        ticker: 待分析公司的股票代码。
     
     返回：
         str: 规范化后的代码结果。
     """
-    return normalize_ashare_symbol(ticker)
+    return normalize_market_symbol(ticker)
 
 
 def get_analysis_date() -> str:

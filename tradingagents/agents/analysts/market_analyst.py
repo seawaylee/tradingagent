@@ -3,6 +3,8 @@ import time
 import json
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
+    get_execution_constraints_prompt,
+    get_market_scope,
     get_user_facing_report_instruction,
     get_indicators,
     get_stock_data,
@@ -32,7 +34,10 @@ def create_market_analyst(llm):
             dict: 需要回写到图状态中的状态补丁。
         """
         current_date = state["trade_date"]
-        instrument_context = build_instrument_context(state["company_of_interest"])
+        ticker = state["company_of_interest"]
+        instrument_context = build_instrument_context(ticker)
+        market_scope = get_market_scope(ticker)
+        execution_constraints = get_execution_constraints_prompt(ticker)
 
         tools = [
             get_stock_data,
@@ -40,7 +45,7 @@ def create_market_analyst(llm):
         ]
 
         system_message = (
-            """You are an A-share technical analyst. Your role is to select the **most relevant indicators** for the current market condition or trading strategy in the A-share market. The goal is to choose up to **8 indicators** that provide complementary insights without redundancy. Categories and each category's indicators are:
+            f"""You are a technical analyst covering the {market_scope}. Your role is to select the **most relevant indicators** for the current market condition or trading strategy in the {market_scope}. The goal is to choose up to **8 indicators** that provide complementary insights without redundancy. Categories and each category's indicators are:
 
 Moving Averages:
 - close_50_sma: 50 SMA: A medium-term trend indicator. Usage: Identify trend direction and serve as dynamic support/resistance. Tips: It lags price; combine with faster indicators for timely signals.
@@ -64,7 +69,7 @@ Volatility Indicators:
 Volume-Based Indicators:
 - vwma: VWMA: A moving average weighted by volume. Usage: Confirm trends by integrating price action with volume data. Tips: Watch for skewed results from volume spikes; use in combination with other volume analyses.
 
-- Select indicators that provide diverse and complementary information. Avoid redundancy. When you tool call, please use the exact name of the indicators provided above as they are defined parameters, otherwise your call will fail. Please make sure to call get_stock_data first to retrieve the CSV that is needed to generate indicators. Then use get_indicators with the specific indicator names. Write a detailed report that also discusses A-share specific execution issues such as涨跌停、T+1、换手率、情绪冲高回落风险, and whether the setup favors trend-following or mean-reversion."""
+- Select indicators that provide diverse and complementary information. Avoid redundancy. When you tool call, please use the exact name of the indicators provided above as they are defined parameters, otherwise your call will fail. Please make sure to call get_stock_data first to retrieve the CSV that is needed to generate indicators. Then use get_indicators with the specific indicator names. Write a detailed report that also discusses execution issues such as {execution_constraints}, and whether the setup favors trend-following or mean-reversion."""
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
             + get_user_facing_report_instruction()
         )

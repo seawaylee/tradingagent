@@ -1,3 +1,5 @@
+import logging
+
 from .a_share import (
     get_balance_sheet as get_akshare_balance_sheet,
     get_cashflow as get_akshare_cashflow,
@@ -9,6 +11,16 @@ from .a_share import (
     get_news as get_akshare_news,
     get_stock_data as get_akshare_stock_data,
 )
+from .hk_share import get_stock_data as get_hk_stock_data
+from .hk_share import (
+    get_balance_sheet as get_hk_balance_sheet,
+    get_cashflow as get_hk_cashflow,
+    get_company_announcements as get_hk_company_announcements,
+    get_fundamentals as get_hk_fundamentals,
+    get_income_statement as get_hk_income_statement,
+    get_indicators as get_hk_indicators,
+    get_news as get_hk_news,
+)
 from .eastmoney_mx import (
     get_company_announcements as get_mx_company_announcements,
     get_fundamentals as get_mx_fundamentals,
@@ -16,6 +28,35 @@ from .eastmoney_mx import (
     get_news as get_mx_news,
 )
 from .config import get_config
+from .market_symbols import is_hk_symbol
+
+
+logger = logging.getLogger(__name__)
+HK_INCOMPATIBLE_VENDORS = {
+    "get_news": {"mx"},
+    "get_fundamentals": {"mx"},
+    "get_company_announcements": {"mx"},
+}
+
+
+def _route_market_impl(primary_impl_name: str, hk_impl_name: str | None = None):
+    """
+    根据代码市场选择实现。
+
+    参数：
+        primary_impl_name: 默认实现名称。
+        hk_impl_name: 港股实现名称。
+
+    返回：
+        Callable: 已封装的路由函数。
+    """
+    def _wrapped(*args, **kwargs):
+        symbol = args[0] if args else kwargs.get("symbol") or kwargs.get("ticker")
+        if hk_impl_name and symbol and is_hk_symbol(str(symbol)):
+            return globals()[hk_impl_name](*args, **kwargs)
+        return globals()[primary_impl_name](*args, **kwargs)
+
+    return _wrapped
 
 TOOLS_CATEGORIES = {
     "core_stock_apis": {
@@ -40,26 +81,26 @@ VENDOR_LIST = ["akshare", "mx"]
 
 VENDOR_METHODS = {
     "get_stock_data": {
-        "akshare": get_akshare_stock_data,
+        "akshare": _route_market_impl("get_akshare_stock_data", "get_hk_stock_data"),
     },
     "get_indicators": {
-        "akshare": get_akshare_indicators,
+        "akshare": _route_market_impl("get_akshare_indicators", "get_hk_indicators"),
     },
     "get_fundamentals": {
-        "akshare": get_akshare_fundamentals,
+        "akshare": _route_market_impl("get_akshare_fundamentals", "get_hk_fundamentals"),
         "mx": get_mx_fundamentals,
     },
     "get_balance_sheet": {
-        "akshare": get_akshare_balance_sheet,
+        "akshare": _route_market_impl("get_akshare_balance_sheet", "get_hk_balance_sheet"),
     },
     "get_cashflow": {
-        "akshare": get_akshare_cashflow,
+        "akshare": _route_market_impl("get_akshare_cashflow", "get_hk_cashflow"),
     },
     "get_income_statement": {
-        "akshare": get_akshare_income_statement,
+        "akshare": _route_market_impl("get_akshare_income_statement", "get_hk_income_statement"),
     },
     "get_news": {
-        "akshare": get_akshare_news,
+        "akshare": _route_market_impl("get_akshare_news", "get_hk_news"),
         "mx": get_mx_news,
     },
     "get_market_news": {
@@ -67,7 +108,7 @@ VENDOR_METHODS = {
         "mx": get_mx_market_news,
     },
     "get_company_announcements": {
-        "akshare": get_akshare_company_announcements,
+        "akshare": _route_market_impl("get_akshare_company_announcements", "get_hk_company_announcements"),
         "mx": get_mx_company_announcements,
     },
 }
@@ -109,6 +150,24 @@ def get_vendor(category: str, method: str = None) -> str:
     # 回退到类别级配置
     return config.get("data_vendors", {}).get(category, "akshare")
 
+
+def _select_market_compatible_vendors(method: str, vendors: list[str], symbol: str | None) -> list[str]:
+    """
+    根据标的市场过滤与当前方法兼容的 vendor。
+
+    参数：
+        method: 抽象工具方法名。
+        vendors: 已配置 vendor 列表。
+        symbol: 股票代码。
+
+    返回：
+        list[str]: 兼容当前市场的 vendor 列表。
+    """
+    if symbol and is_hk_symbol(str(symbol)):
+        incompatible = HK_INCOMPATIBLE_VENDORS.get(method, set())
+        return [vendor for vendor in vendors if vendor not in incompatible]
+    return vendors
+
 def route_to_vendor(method: str, *args, **kwargs):
     """
     将方法调用路由到配置好的 A 股数据实现。
@@ -123,18 +182,26 @@ def route_to_vendor(method: str, *args, **kwargs):
     """
     category = get_category_for_method(method)
     vendor_config = get_vendor(category, method)
-    primary_vendors = [v.strip() for v in vendor_config.split(',')]
+    configured_vendors = [v.strip() for v in vendor_config.split(",") if v.strip()]
+    if not configured_vendors:
+        configured_vendors = ["akshare"]
+    symbol = args[0] if args else kwargs.get("symbol") or kwargs.get("ticker")
+    compatible_vendors = _select_market_compatible_vendors(method, configured_vendors, symbol)
+    config = get_config()
+    allow_vendor_fallback = bool(config.get("allow_vendor_fallback", False))
 
     if method not in VENDOR_METHODS:
         raise ValueError(f"Method '{method}' not supported")
 
-    all_available_vendors = list(VENDOR_METHODS[method].keys())
-    fallback_vendors = primary_vendors.copy()
-    for vendor in all_available_vendors:
-        if vendor not in fallback_vendors:
-            fallback_vendors.append(vendor)
+    if not compatible_vendors:
+        raise RuntimeError(
+            f"No market-compatible vendor configured for '{method}' and symbol '{symbol}'. configured={configured_vendors}"
+        )
 
-    for vendor in fallback_vendors:
+    candidate_vendors = compatible_vendors if allow_vendor_fallback else compatible_vendors[:1]
+    errors = []
+
+    for idx, vendor in enumerate(candidate_vendors):
         if vendor not in VENDOR_METHODS[method]:
             continue
 
@@ -143,7 +210,28 @@ def route_to_vendor(method: str, *args, **kwargs):
 
         try:
             return impl_func(*args, **kwargs)
-        except Exception:
-            continue
+        except Exception as exc:
+            detail = f"vendor={vendor} error={type(exc).__name__}: {exc}"
+            errors.append(detail)
+            logger.exception(
+                "Vendor call failed: method=%s vendor=%s args=%s kwargs=%s",
+                method,
+                vendor,
+                args,
+                kwargs,
+            )
+            if not allow_vendor_fallback:
+                raise RuntimeError(
+                    f"Vendor call failed for '{method}' with {detail}; fallback disabled"
+                ) from exc
+            if idx == len(candidate_vendors) - 1:
+                break
 
-    raise RuntimeError(f"No available vendor for '{method}'")
+    attempted = ", ".join(candidate_vendors) if candidate_vendors else "(none)"
+    if errors:
+        raise RuntimeError(
+            f"All configured vendors failed for '{method}'. attempted=[{attempted}] details={' | '.join(errors)}"
+        )
+    raise RuntimeError(
+        f"No configured vendor implementation available for '{method}'. attempted=[{attempted}]"
+    )

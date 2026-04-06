@@ -1,6 +1,8 @@
 from tradingagents.agents.utils.agent_utils import (
     get_internal_language_instruction,
     get_internal_language,
+    get_market_descriptor,
+    get_market_policy_report_label,
 )
 
 
@@ -44,6 +46,9 @@ def create_bull_researcher(llm, memory):
 
         output_language = get_internal_language()
         speaker_label = "多头研究员" if output_language.lower() == "chinese" else "Bull Analyst"
+        ticker = state["company_of_interest"]
+        market_descriptor = get_market_descriptor(ticker)
+        market_policy_report_label = get_market_policy_report_label(ticker)
 
         prompt = f"""You are a Bull Analyst advocating for investing in the stock. Your task is to build a strong, evidence-based case emphasizing growth potential, competitive advantages, and positive market indicators. Leverage the provided research and data to address concerns and counter bearish arguments effectively.
 
@@ -58,12 +63,12 @@ Key points to focus on:
 Resources available:
 Market research report: {market_research_report}
 Social media sentiment report: {sentiment_report}
-Latest A-share market and policy news: {news_report}
+{market_policy_report_label}: {news_report}
 Company fundamentals report: {fundamentals_report}
 Conversation history of the debate: {history}
 Last bear argument: {current_response}
 Reflections from similar situations and lessons learned: {past_memory_str}
-Use this information to deliver a compelling bull argument for the A-share market. Discuss why policy support,行业景气, valuation repair,资金风格, or催化事件 may justify upside. Refute the bear's concerns and learn from prior lessons.
+Use this information to deliver a compelling bull argument for the {market_descriptor} market. Discuss why policy support,行业景气, valuation repair,资金风格, or催化事件 may justify upside. Refute the bear's concerns and learn from prior lessons.
 {get_internal_language_instruction()}"""
 
         response = llm.invoke(prompt)

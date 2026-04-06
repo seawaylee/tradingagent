@@ -81,7 +81,11 @@ class Propagator:
             "final_trade_decision_report": "",
         }
 
-    def get_graph_args(self, callbacks: Optional[List] = None) -> Dict[str, Any]:
+    def get_graph_args(
+        self,
+        callbacks: Optional[List] = None,
+        thread_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         获取图调用所需参数。
         
@@ -94,6 +98,8 @@ class Propagator:
         config = {"recursion_limit": self.max_recur_limit}
         if callbacks:
             config["callbacks"] = callbacks
+        if thread_id:
+            config["configurable"] = {"thread_id": thread_id}
         return {
             "stream_mode": "values",
             "config": config,

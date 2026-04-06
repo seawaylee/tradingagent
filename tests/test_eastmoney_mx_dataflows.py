@@ -102,7 +102,7 @@ class EastmoneyMXDataflowTests(unittest.TestCase):
         self.assertIn("营业总收入", result)
         self.assertIn("2025-12-31", result)
 
-    def test_route_to_vendor_falls_back_when_primary_vendor_raises(self):
+    def test_route_to_vendor_raises_primary_error_without_fallback_by_default(self):
         def _mx_fail(*args, **kwargs):
             raise RuntimeError("mx unavailable")
 
@@ -110,7 +110,36 @@ class EastmoneyMXDataflowTests(unittest.TestCase):
             return "akshare result"
 
         with patch.dict(interface.VENDOR_METHODS["get_news"], {"mx": _mx_fail, "akshare": _akshare_ok}, clear=True):
-            with patch("tradingagents.dataflows.interface.get_vendor", return_value="mx,akshare"):
+            with patch(
+                "tradingagents.dataflows.interface.get_config",
+                return_value={
+                    "tool_vendors": {"get_news": "mx,akshare"},
+                    "data_vendors": {},
+                    "allow_vendor_fallback": False,
+                },
+            ):
+                with self.assertRaises(RuntimeError) as ctx:
+                    interface.route_to_vendor("get_news", "601899", "2026-04-01", "2026-04-03")
+
+        self.assertIn("mx unavailable", str(ctx.exception))
+        self.assertIn("fallback disabled", str(ctx.exception))
+
+    def test_route_to_vendor_can_fall_back_when_explicitly_enabled(self):
+        def _mx_fail(*args, **kwargs):
+            raise RuntimeError("mx unavailable")
+
+        def _akshare_ok(*args, **kwargs):
+            return "akshare result"
+
+        with patch.dict(interface.VENDOR_METHODS["get_news"], {"mx": _mx_fail, "akshare": _akshare_ok}, clear=True):
+            with patch(
+                "tradingagents.dataflows.interface.get_config",
+                return_value={
+                    "tool_vendors": {"get_news": "mx,akshare"},
+                    "data_vendors": {},
+                    "allow_vendor_fallback": True,
+                },
+            ):
                 result = interface.route_to_vendor("get_news", "601899", "2026-04-01", "2026-04-03")
 
         self.assertEqual("akshare result", result)
