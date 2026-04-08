@@ -1,6 +1,7 @@
 import os
 import re
 import shlex
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -17,6 +18,35 @@ class NormalizedChatOpenAI(ChatOpenAI):
     这里统一整理为字符串，便于后续链路稳定处理。
     """
 
+    transient_error_max_retries: int = 3
+    transient_error_retry_delay_seconds: int = 5
+
+    def _is_retryable_error(self, exc: Exception) -> bool:
+        message = str(exc or "").lower()
+        status_code = getattr(exc, "status_code", None)
+        response = getattr(exc, "response", None)
+        if status_code is None and response is not None:
+            status_code = getattr(response, "status_code", None)
+
+        if status_code in {429, 500, 502, 503, 504}:
+            return True
+
+        markers = (
+            "connection error",
+            "connection reset by peer",
+            "timed out",
+            "timeout",
+            "rate limit",
+            "llm error 1302",
+            "请控制请求频率",
+            "达到速率限制",
+            "requests per minute",
+            "too many requests",
+            "temporarily unavailable",
+            "service unavailable",
+        )
+        return any(marker in message for marker in markers)
+
     def invoke(self, input, config=None, **kwargs):
         """
         执行模型调用。
@@ -29,7 +59,16 @@ class NormalizedChatOpenAI(ChatOpenAI):
         返回：
             Any: 规范化后的模型响应。
         """
-        return normalize_content(super().invoke(input, config, **kwargs))
+        max_attempts = max(1, int(getattr(self, "transient_error_max_retries", 0)) + 1)
+        retry_delay = max(0, int(getattr(self, "transient_error_retry_delay_seconds", 5)))
+
+        for attempt in range(max_attempts):
+            try:
+                return normalize_content(super().invoke(input, config, **kwargs))
+            except Exception as exc:
+                if attempt == max_attempts - 1 or not self._is_retryable_error(exc):
+                    raise
+                time.sleep(retry_delay)
 
 # 将用户配置中的 kwargs 透传给 ChatOpenAI
 _PASSTHROUGH_KWARGS = (
@@ -152,7 +191,10 @@ class OpenAIClient(BaseLLMClient):
         if self.provider == "openai":
             llm_kwargs["use_responses_api"] = True
 
-        return NormalizedChatOpenAI(**llm_kwargs)
+        llm = NormalizedChatOpenAI(**llm_kwargs)
+        llm.transient_error_max_retries = int(self.kwargs.get("transient_error_max_retries", 3))
+        llm.transient_error_retry_delay_seconds = int(self.kwargs.get("transient_error_retry_delay_seconds", 5))
+        return llm
 
     def validate_model(self) -> bool:
         """
