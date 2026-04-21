@@ -35,6 +35,11 @@ DEFAULT_CONFIG = {
     "deep_think_llm": "GLM-5.1",
     "quick_think_llm": "GLM-5.1",
     "backend_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+    # Fallback LLM — used when primary provider fails or returns empty content
+    "fallback_llm_provider": "",
+    "fallback_deep_think_llm": "",
+    "fallback_quick_think_llm": "",
+    "fallback_backend_url": "",
     "azure_api_version": None,
     "content_filter_max_retries": 2,
     "content_filter_skip_message": "Skipped due to Azure content policy filter.",
@@ -56,7 +61,7 @@ DEFAULT_CONFIG = {
     # 超时配置（秒）
     "timeout": 180,
     # 数据供应商配置
-    "allow_vendor_fallback": False,
+    "allow_vendor_fallback": True,
     # 类别级配置（该类别下工具默认沿用）
     "data_vendors": {
         "core_stock_apis": "akshare",

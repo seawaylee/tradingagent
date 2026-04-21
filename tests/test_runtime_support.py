@@ -13,6 +13,18 @@ class _CounterState(TypedDict):
 
 
 class RuntimeSupportTests(unittest.TestCase):
+    def test_file_checkpoint_saver_recovers_from_corrupted_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            checkpoint_file = Path(temp_dir) / "checkpoint.pkl"
+            checkpoint_file.write_bytes(b"not-a-valid-pickle")
+
+            saver = FileCheckpointSaver(checkpoint_file)
+
+            self.assertEqual(0, len(saver.storage))
+            self.assertFalse(checkpoint_file.exists())
+            backups = list(checkpoint_file.parent.glob("checkpoint.pkl.corrupt*"))
+            self.assertEqual(1, len(backups))
+
     def test_file_checkpoint_saver_persists_and_resumes_incomplete_run(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             checkpoint_file = Path(temp_dir) / "checkpoint.pkl"

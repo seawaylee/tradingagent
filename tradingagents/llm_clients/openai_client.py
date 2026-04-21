@@ -16,10 +16,13 @@ class NormalizedChatOpenAI(ChatOpenAI):
 
     Responses API 可能返回分块内容（如 reasoning、text 等），
     这里统一整理为字符串，便于后续链路稳定处理。
+
+    支持 fallback_llm：主 provider 失败或返回空内容时自动切换备用 LLM。
     """
 
     transient_error_max_retries: int = 3
     transient_error_retry_delay_seconds: int = 5
+    fallback_llm: Any = None  # Optional[ChatOpenAI] fallback instance
 
     def _is_retryable_error(self, exc: Exception) -> bool:
         message = str(exc or "").lower()
@@ -47,28 +50,82 @@ class NormalizedChatOpenAI(ChatOpenAI):
         )
         return any(marker in message for marker in markers)
 
+    def _is_empty_response(self, response: Any) -> bool:
+        """Check if the response has empty/None content — a sign of provider failure.
+
+        Tool-call responses (with tool_calls but empty content) are NOT considered empty.
+        """
+        if response is None:
+            return True
+        # Tool call responses have empty content but valid tool_calls — not empty
+        if getattr(response, "tool_calls", None):
+            return False
+        if getattr(response, "function_call", None):
+            return False
+        additional_kwargs = getattr(response, "additional_kwargs", None)
+        if isinstance(additional_kwargs, dict):
+            if additional_kwargs.get("function_call") or additional_kwargs.get("tool_calls"):
+                return False
+        content = getattr(response, "content", None)
+        if content is None:
+            return True
+        if isinstance(content, str) and not content.strip():
+            return True
+        if isinstance(content, list) and not any(
+            (item.get("text", "") if isinstance(item, dict) else str(item)).strip()
+            for item in content
+        ):
+            return True
+        return False
+
     def invoke(self, input, config=None, **kwargs):
         """
-        执行模型调用。
-        
+        执行模型调用，支持 transient 重试和 provider fallback。
+
         参数：
             input: 输入内容。
             config: 运行时配置映射。
             kwargs: 透传给底层可调用对象的关键字参数。
-        
+
         返回：
             Any: 规范化后的模型响应。
         """
         max_attempts = max(1, int(getattr(self, "transient_error_max_retries", 0)) + 1)
         retry_delay = max(0, int(getattr(self, "transient_error_retry_delay_seconds", 5)))
 
+        last_exc: Exception | None = None
         for attempt in range(max_attempts):
             try:
-                return normalize_content(super().invoke(input, config, **kwargs))
+                result = normalize_content(super().invoke(input, config, **kwargs))
+                if not self._is_empty_response(result):
+                    return result
+                # Empty response — treat as provider failure, try fallback
+                print(f"[llm] {self.model_name} returned empty content, attempting fallback...")
+                break
             except Exception as exc:
-                if attempt == max_attempts - 1 or not self._is_retryable_error(exc):
-                    raise
-                time.sleep(retry_delay)
+                last_exc = exc
+                if attempt < max_attempts - 1 and self._is_retryable_error(exc):
+                    time.sleep(retry_delay)
+                    continue
+                # Non-retryable or final attempt — try fallback before raising
+                break
+
+        # Fallback to secondary LLM
+        if self.fallback_llm is not None:
+            try:
+                fb_model = getattr(self.fallback_llm, "model_name", "unknown")
+                print(f"[llm] Falling back to {fb_model}...")
+                result = normalize_content(self.fallback_llm.invoke(input, config, **kwargs))
+                if not self._is_empty_response(result):
+                    return result
+                print(f"[llm] Fallback {fb_model} also returned empty content")
+            except Exception as fb_exc:
+                print(f"[llm] Fallback failed: {fb_exc}")
+
+        # No fallback or fallback also failed — raise original error
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError(f"Primary LLM {self.model_name} returned empty content and no fallback succeeded")
 
 # 将用户配置中的 kwargs 透传给 ChatOpenAI
 _PASSTHROUGH_KWARGS = (
@@ -188,12 +245,41 @@ class OpenAIClient(BaseLLMClient):
 
         # 原生 OpenAI：使用 Responses API，以在不同模型家族间保持一致行为
         # 第三方兼容提供方则继续使用 Chat Completions。
-        if self.provider == "openai":
+        # 如果 base_url 被覆盖为非 OpenAI 官方地址，也走 Chat Completions。
+        if self.provider == "openai" and not self.base_url:
             llm_kwargs["use_responses_api"] = True
 
         llm = NormalizedChatOpenAI(**llm_kwargs)
         llm.transient_error_max_retries = int(self.kwargs.get("transient_error_max_retries", 3))
         llm.transient_error_retry_delay_seconds = int(self.kwargs.get("transient_error_retry_delay_seconds", 5))
+
+        # Build fallback LLM if fallback config is provided
+        fallback_provider = self.kwargs.get("fallback_provider")
+        fallback_model = self.kwargs.get("fallback_model")
+        if fallback_provider and fallback_model:
+            fb_kwargs = {"model": fallback_model}
+            fb_config = _PROVIDER_CONFIG.get(fallback_provider)
+            if fb_config:
+                fb_kwargs["base_url"] = self.kwargs.get("fallback_base_url") or fb_config["base_url"]
+                if fallback_provider == "zhipu":
+                    fb_api_key = _resolve_zhipu_api_key()
+                else:
+                    fb_api_key_env = fb_config.get("api_key_env")
+                    fb_api_key = os.environ.get(fb_api_key_env) if fb_api_key_env else None
+                if fb_api_key:
+                    fb_kwargs["api_key"] = fb_api_key
+            elif self.kwargs.get("fallback_base_url"):
+                fb_kwargs["base_url"] = self.kwargs["fallback_base_url"]
+            # Copy passthrough kwargs to fallback (except fallback-specific ones)
+            for key in _PASSTHROUGH_KWARGS:
+                if key in self.kwargs:
+                    fb_kwargs[key] = self.kwargs[key]
+            fb_llm = NormalizedChatOpenAI(**fb_kwargs)
+            fb_llm.transient_error_max_retries = int(self.kwargs.get("transient_error_max_retries", 3))
+            fb_llm.transient_error_retry_delay_seconds = int(self.kwargs.get("transient_error_retry_delay_seconds", 5))
+            llm.fallback_llm = fb_llm
+            print(f"[llm] Fallback configured: {fallback_provider}/{fallback_model}")
+
         return llm
 
     def validate_model(self) -> bool:

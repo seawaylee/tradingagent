@@ -151,6 +151,12 @@ class EastmoneyMXDataflowTests(unittest.TestCase):
         self.assertEqual("mx,akshare", runtime_config["tool_vendors"]["get_news"])
         self.assertEqual("mx,akshare", runtime_config["tool_vendors"]["get_fundamentals"])
 
+    def test_build_runtime_config_enables_vendor_fallback_by_default(self):
+        with patch("tradingagents.default_config.load_last_config", return_value={}):
+            runtime_config = build_runtime_config()
+
+        self.assertTrue(runtime_config["allow_vendor_fallback"])
+
 
 if __name__ == "__main__":
     unittest.main()

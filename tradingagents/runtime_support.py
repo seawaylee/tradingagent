@@ -1,7 +1,9 @@
 import datetime
 import json
+import os
 import pickle
 import re
+import threading
 import traceback
 from collections import defaultdict
 from pathlib import Path
@@ -162,14 +164,37 @@ class FileCheckpointSaver(InMemorySaver):
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._io_lock = threading.RLock()
         super().__init__()
         self._restore()
+
+    def _corrupt_backup_path(self) -> Path:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        candidate = self.path.with_name(f"{self.path.name}.corrupt-{timestamp}")
+        counter = 1
+        while candidate.exists():
+            candidate = self.path.with_name(f"{self.path.name}.corrupt-{timestamp}-{counter}")
+            counter += 1
+        return candidate
+
+    def _quarantine_corrupted_file(self) -> None:
+        if not self.path.exists():
+            return
+        backup_path = self._corrupt_backup_path()
+        self.path.replace(backup_path)
 
     def _restore(self) -> None:
         if not self.path.exists():
             return
-        with self.path.open("rb") as handle:
-            payload = pickle.load(handle)
+        with self._io_lock:
+            try:
+                with self.path.open("rb") as handle:
+                    payload = pickle.load(handle)
+                if not isinstance(payload, dict):
+                    raise ValueError("Checkpoint payload must be a dict.")
+            except (EOFError, pickle.PickleError, ValueError, TypeError, AttributeError):
+                self._quarantine_corrupted_file()
+                return
         storage_payload = payload.get("storage", {})
         restored_storage = defaultdict(lambda: defaultdict(dict))
         for thread_id, namespaces in storage_payload.items():
@@ -193,91 +218,108 @@ class FileCheckpointSaver(InMemorySaver):
         return value
 
     def _flush(self) -> None:
-        payload = {
-            "storage": self._to_plain_dict(self.storage),
-            "writes": self._to_plain_dict(self.writes),
-            "blobs": self._to_plain_dict(self.blobs),
-        }
-        with self.path.open("wb") as handle:
-            pickle.dump(payload, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        with self._io_lock:
+            payload = {
+                "storage": self._to_plain_dict(self.storage),
+                "writes": self._to_plain_dict(self.writes),
+                "blobs": self._to_plain_dict(self.blobs),
+            }
+            temp_path = self.path.with_name(
+                f".{self.path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+            )
+            try:
+                with temp_path.open("wb") as handle:
+                    pickle.dump(payload, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                temp_path.replace(self.path)
+            finally:
+                if temp_path.exists():
+                    temp_path.unlink()
 
     def put(self, config, checkpoint, metadata, new_versions):
-        result = super().put(config, checkpoint, metadata, new_versions)
-        self._flush()
-        return result
+        with self._io_lock:
+            result = super().put(config, checkpoint, metadata, new_versions)
+            self._flush()
+            return result
 
     def put_writes(self, config, writes, task_id, task_path=""):
-        super().put_writes(config, writes, task_id, task_path)
-        self._flush()
+        with self._io_lock:
+            super().put_writes(config, writes, task_id, task_path)
+            self._flush()
 
     def delete_thread(self, thread_id: str) -> None:
-        super().delete_thread(thread_id)
-        self._flush()
+        with self._io_lock:
+            super().delete_thread(thread_id)
+            self._flush()
 
     def delete_for_runs(self, run_ids):
         if not run_ids:
             return
-        run_id_set = set(run_ids)
-        changed = False
-        for outer_key in list(self.writes.keys()):
-            writes = self.writes.get(outer_key, {})
-            for inner_key, value in list(writes.items()):
-                task_id = value[0]
-                if task_id in run_id_set:
-                    del writes[inner_key]
-                    changed = True
-            if not writes:
-                del self.writes[outer_key]
-        if changed:
-            self._flush()
+        with self._io_lock:
+            run_id_set = set(run_ids)
+            changed = False
+            for outer_key in list(self.writes.keys()):
+                writes = self.writes.get(outer_key, {})
+                for inner_key, value in list(writes.items()):
+                    task_id = value[0]
+                    if task_id in run_id_set:
+                        del writes[inner_key]
+                        changed = True
+                if not writes:
+                    del self.writes[outer_key]
+            if changed:
+                self._flush()
 
     def copy_thread(self, source_thread_id: str, target_thread_id: str) -> None:
-        if source_thread_id not in self.storage:
-            return
-        self.storage[target_thread_id] = pickle.loads(pickle.dumps(self.storage[source_thread_id]))
-        for key, value in list(self.writes.items()):
-            if key[0] == source_thread_id:
-                self.writes[(target_thread_id, key[1], key[2])] = pickle.loads(pickle.dumps(value))
-        for key, value in list(self.blobs.items()):
-            if key[0] == source_thread_id:
-                self.blobs[(target_thread_id, key[1], key[2], key[3])] = pickle.loads(pickle.dumps(value))
-        self._flush()
+        with self._io_lock:
+            if source_thread_id not in self.storage:
+                return
+            self.storage[target_thread_id] = pickle.loads(pickle.dumps(self.storage[source_thread_id]))
+            for key, value in list(self.writes.items()):
+                if key[0] == source_thread_id:
+                    self.writes[(target_thread_id, key[1], key[2])] = pickle.loads(pickle.dumps(value))
+            for key, value in list(self.blobs.items()):
+                if key[0] == source_thread_id:
+                    self.blobs[(target_thread_id, key[1], key[2], key[3])] = pickle.loads(pickle.dumps(value))
+            self._flush()
 
     def prune(self, thread_ids, *, strategy: str = "keep_latest") -> None:
-        if strategy == "delete":
-            for thread_id in thread_ids:
-                super().delete_thread(thread_id)
-            self._flush()
-            return
-        if strategy != "keep_latest":
-            raise ValueError(f"Unsupported prune strategy: {strategy}")
+        with self._io_lock:
+            if strategy == "delete":
+                for thread_id in thread_ids:
+                    super().delete_thread(thread_id)
+                self._flush()
+                return
+            if strategy != "keep_latest":
+                raise ValueError(f"Unsupported prune strategy: {strategy}")
 
-        changed = False
-        for thread_id in thread_ids:
-            namespaces = self.storage.get(thread_id, {})
-            for checkpoint_ns, checkpoints in list(namespaces.items()):
-                if len(checkpoints) <= 1:
-                    continue
-                latest_checkpoint_id = max(checkpoints.keys())
-                for checkpoint_id in list(checkpoints.keys()):
-                    if checkpoint_id == latest_checkpoint_id:
+            changed = False
+            for thread_id in thread_ids:
+                namespaces = self.storage.get(thread_id, {})
+                for checkpoint_ns, checkpoints in list(namespaces.items()):
+                    if len(checkpoints) <= 1:
                         continue
-                    del checkpoints[checkpoint_id]
-                    self.writes.pop((thread_id, checkpoint_ns, checkpoint_id), None)
-                    changed = True
-                for key in list(self.blobs.keys()):
-                    if key[0] == thread_id and key[1] == checkpoint_ns:
+                    latest_checkpoint_id = max(checkpoints.keys())
+                    for checkpoint_id in list(checkpoints.keys()):
+                        if checkpoint_id == latest_checkpoint_id:
+                            continue
+                        del checkpoints[checkpoint_id]
+                        self.writes.pop((thread_id, checkpoint_ns, checkpoint_id), None)
                         changed = True
-                if changed:
-                    latest_tuple = self.get_tuple(
-                        {
-                            "configurable": {
-                                "thread_id": thread_id,
-                                "checkpoint_ns": checkpoint_ns,
-                                "checkpoint_id": latest_checkpoint_id,
+                    for key in list(self.blobs.keys()):
+                        if key[0] == thread_id and key[1] == checkpoint_ns:
+                            changed = True
+                    if changed:
+                        latest_tuple = self.get_tuple(
+                            {
+                                "configurable": {
+                                    "thread_id": thread_id,
+                                    "checkpoint_ns": checkpoint_ns,
+                                    "checkpoint_id": latest_checkpoint_id,
+                                }
                             }
-                        }
-                    )
+                        )
                     keep_versions = set()
                     if latest_tuple is not None:
                         keep_versions = {

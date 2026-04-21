@@ -87,17 +87,37 @@ class TradingAgentsGraph:
         if self.callbacks:
             llm_kwargs["callbacks"] = self.callbacks
 
+        # Inject fallback LLM config if configured
+        fb_provider = self.config.get("fallback_llm_provider", "")
+        fb_deep = self.config.get("fallback_deep_think_llm", "")
+        fb_quick = self.config.get("fallback_quick_think_llm", "")
+        fb_url = self.config.get("fallback_backend_url", "")
+
+        deep_fb_kwargs = dict(llm_kwargs)
+        if fb_provider and fb_deep:
+            deep_fb_kwargs["fallback_provider"] = fb_provider
+            deep_fb_kwargs["fallback_model"] = fb_deep
+            if fb_url:
+                deep_fb_kwargs["fallback_base_url"] = fb_url
+
+        quick_fb_kwargs = dict(llm_kwargs)
+        if fb_provider and fb_quick:
+            quick_fb_kwargs["fallback_provider"] = fb_provider
+            quick_fb_kwargs["fallback_model"] = fb_quick
+            if fb_url:
+                quick_fb_kwargs["fallback_base_url"] = fb_url
+
         deep_client = create_llm_client(
             provider=self.config["llm_provider"],
             model=self.config["deep_think_llm"],
             base_url=self.config.get("backend_url"),
-            **llm_kwargs,
+            **deep_fb_kwargs,
         )
         quick_client = create_llm_client(
             provider=self.config["llm_provider"],
             model=self.config["quick_think_llm"],
             base_url=self.config.get("backend_url"),
-            **llm_kwargs,
+            **quick_fb_kwargs,
         )
 
         self.deep_thinking_llm = deep_client.get_llm()
