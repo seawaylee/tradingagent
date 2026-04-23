@@ -31,7 +31,7 @@ class NormalizedChatOpenAI(ChatOpenAI):
         if status_code is None and response is not None:
             status_code = getattr(response, "status_code", None)
 
-        if status_code in {429, 500, 502, 503, 504}:
+        if status_code in {429, 500, 502, 503, 524, 529}:
             return True
 
         markers = (
@@ -41,6 +41,8 @@ class NormalizedChatOpenAI(ChatOpenAI):
             "timeout",
             "rate limit",
             "llm error 1302",
+            "error code: 524",
+            "error code: 529",
             "请控制请求频率",
             "达到速率限制",
             "requests per minute",
