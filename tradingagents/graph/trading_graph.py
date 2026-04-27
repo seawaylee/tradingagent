@@ -99,6 +99,9 @@ class TradingAgentsGraph:
             deep_fb_kwargs["fallback_model"] = fb_deep
             if fb_url:
                 deep_fb_kwargs["fallback_base_url"] = fb_url
+            fallback_max_tokens = self.config.get("fallback_max_tokens")
+            if fallback_max_tokens is not None:
+                deep_fb_kwargs["fallback_max_tokens"] = fallback_max_tokens
 
         quick_fb_kwargs = dict(llm_kwargs)
         if fb_provider and fb_quick:
@@ -106,6 +109,9 @@ class TradingAgentsGraph:
             quick_fb_kwargs["fallback_model"] = fb_quick
             if fb_url:
                 quick_fb_kwargs["fallback_base_url"] = fb_url
+            fallback_max_tokens = self.config.get("fallback_max_tokens")
+            if fallback_max_tokens is not None:
+                quick_fb_kwargs["fallback_max_tokens"] = fallback_max_tokens
 
         deep_client = create_llm_client(
             provider=self.config["llm_provider"],
@@ -287,6 +293,9 @@ class TradingAgentsGraph:
         http_async_client = self.config.get("http_async_client")
         if http_async_client is not None:
             kwargs["http_async_client"] = http_async_client
+        max_tokens = self.config.get("max_tokens")
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
 
         return kwargs
 

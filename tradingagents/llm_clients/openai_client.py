@@ -132,7 +132,7 @@ class NormalizedChatOpenAI(ChatOpenAI):
 # 将用户配置中的 kwargs 透传给 ChatOpenAI
 _PASSTHROUGH_KWARGS = (
     "timeout", "max_retries", "reasoning_effort",
-    "api_key", "callbacks", "http_client", "http_async_client",
+    "api_key", "callbacks", "http_client", "http_async_client", "max_tokens",
 )
 
 # 各提供方的基础地址与 API Key 环境变量
@@ -272,9 +272,13 @@ class OpenAIClient(BaseLLMClient):
                     fb_kwargs["api_key"] = fb_api_key
             elif self.kwargs.get("fallback_base_url"):
                 fb_kwargs["base_url"] = self.kwargs["fallback_base_url"]
+            if self.kwargs.get("fallback_max_tokens") is not None:
+                fb_kwargs["max_tokens"] = self.kwargs["fallback_max_tokens"]
             # Copy passthrough kwargs to fallback (except fallback-specific ones)
             for key in _PASSTHROUGH_KWARGS:
                 if key in self.kwargs:
+                    if key in {"api_key", "max_tokens"} and fb_kwargs.get(key) is not None:
+                        continue
                     fb_kwargs[key] = self.kwargs[key]
             fb_llm = NormalizedChatOpenAI(**fb_kwargs)
             fb_llm.transient_error_max_retries = int(self.kwargs.get("transient_error_max_retries", 3))

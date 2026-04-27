@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from tradingagents.llm_clients.openai_client import NormalizedChatOpenAI
+from tradingagents.llm_clients.openai_client import NormalizedChatOpenAI, OpenAIClient
 
 
 class _FakeResponse:
@@ -17,6 +17,18 @@ class _FakeRateLimitError(Exception):
     def __init__(self, message: str, status_code=None):
         super().__init__(message)
         self.status_code = status_code
+
+
+class _FakeConstructedChatModel:
+    created = []
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.model_name = kwargs.get("model", "")
+        self.fallback_llm = None
+        self.transient_error_max_retries = 0
+        self.transient_error_retry_delay_seconds = 0
+        self.__class__.created.append(self)
 
 
 class TestOpenAIClientRetry(unittest.TestCase):
@@ -71,6 +83,31 @@ class TestOpenAIClientRetry(unittest.TestCase):
             NormalizedChatOpenAI.invoke(llm, "hello")
 
         mock_sleep.assert_not_called()
+
+    @patch("tradingagents.llm_clients.openai_client._resolve_zhipu_api_key", return_value="zhipu-key")
+    @patch("tradingagents.llm_clients.openai_client.NormalizedChatOpenAI", _FakeConstructedChatModel)
+    def test_fallback_keeps_provider_specific_api_key(self, _mock_zhipu_key):
+        _FakeConstructedChatModel.created = []
+        client = OpenAIClient(
+            model="gpt-5.4",
+            base_url="https://api.cst9.com/v1",
+            provider="openai",
+            api_key="primary-key",
+            max_tokens=8192,
+            fallback_provider="zhipu",
+            fallback_model="GLM-5.1",
+            fallback_base_url="https://open.bigmodel.cn/api/coding/paas/v4",
+            fallback_max_tokens=4096,
+        )
+
+        llm = client.get_llm()
+
+        self.assertEqual(len(_FakeConstructedChatModel.created), 2)
+        self.assertEqual(_FakeConstructedChatModel.created[0].kwargs["api_key"], "primary-key")
+        self.assertEqual(_FakeConstructedChatModel.created[0].kwargs["max_tokens"], 8192)
+        self.assertEqual(_FakeConstructedChatModel.created[1].kwargs["api_key"], "zhipu-key")
+        self.assertEqual(_FakeConstructedChatModel.created[1].kwargs["max_tokens"], 4096)
+        self.assertIs(llm.fallback_llm, _FakeConstructedChatModel.created[1])
 
 
 if __name__ == "__main__":
