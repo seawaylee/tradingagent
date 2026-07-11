@@ -25,16 +25,17 @@ DEFAULT_CONFIG = {
     "local_data_dir": LOCAL_DATA_DIR,
     "data_tools_cache_dir": os.path.join(LOCAL_DATA_DIR, "data_tools", "cache"),
     "data_tools_snapshot_dir": os.path.join(LOCAL_DATA_DIR, "data_tools", "snapshots"),
+    "decision_log_path": os.path.join(LOCAL_DATA_DIR, "memory", "decision_log.jsonl"),
     "market_data_dir": os.path.join(LOCAL_DATA_DIR, "market_tools"),
     "agent_output_dir": os.path.join(LOCAL_DATA_DIR, "agents"),
     "backtest_output_dir": os.path.join(LOCAL_DATA_DIR, "backtests"),
     "report_output_dir": REPORT_OUTPUT_DIR,
     "market_region": "cn_a",
     # LLM 配置
-    "llm_provider": "zhipu",
-    "deep_think_llm": "GLM-5.1",
-    "quick_think_llm": "GLM-5.1",
-    "backend_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+    "llm_provider": "shared",
+    "deep_think_llm": "gpt-5.5",
+    "quick_think_llm": "gpt-5.5",
+    "backend_url": "",
     # Fallback LLM — used when primary provider fails or returns empty content
     "fallback_llm_provider": "",
     "fallback_deep_think_llm": "",
@@ -45,7 +46,7 @@ DEFAULT_CONFIG = {
     "content_filter_skip_message": "Skipped due to Azure content policy filter.",
     # 不同提供方的思考参数配置
     "google_thinking_level": "high",      # 例如 "high"、"minimal"
-    "openai_reasoning_effort": None,      # 可选 "medium"、"high"、"low"
+    "openai_reasoning_effort": "xhigh",   # shared gpt-5.5 统一使用 xhigh
     "anthropic_effort": None,             # 可选 "high"、"medium"、"low"
     # 分析师报告、辩论内容与最终决策的输出语言。
     # 如存在必须保留的机器可读标记，应仅保留该标记本身的英文形式。
@@ -59,7 +60,7 @@ DEFAULT_CONFIG = {
     "max_risk_discuss_rounds": 1,
     "max_recur_limit": 100,
     # 超时配置（秒）
-    "timeout": 180,
+    "timeout": 300,
     # 数据供应商配置
     "allow_vendor_fallback": True,
     # 类别级配置（该类别下工具默认沿用）
@@ -77,6 +78,21 @@ DEFAULT_CONFIG = {
         "get_fundamentals": "mx,akshare",
     },
 }
+
+
+def _normalize_runtime_llm_config(config: dict) -> dict:
+    normalized = config.copy()
+    normalized["llm_provider"] = "shared"
+    normalized["deep_think_llm"] = "gpt-5.5"
+    normalized["quick_think_llm"] = "gpt-5.5"
+    normalized["backend_url"] = ""
+    normalized["openai_reasoning_effort"] = "xhigh"
+    normalized["fallback_llm_provider"] = ""
+    normalized["fallback_deep_think_llm"] = ""
+    normalized["fallback_quick_think_llm"] = ""
+    normalized["fallback_backend_url"] = ""
+    normalized["timeout"] = 300
+    return normalized
 
 
 def load_last_config() -> dict:
@@ -121,7 +137,7 @@ def build_runtime_config() -> dict:
             runtime_config[key] = merged
         else:
             runtime_config[key] = value
-    return runtime_config
+    return _normalize_runtime_llm_config(runtime_config)
 
 
 def save_last_config(config: dict) -> None:

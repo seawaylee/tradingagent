@@ -9,10 +9,10 @@ load_dotenv()
 
 # 创建自定义配置
 config = DEFAULT_CONFIG.copy()
-config["llm_provider"] = "zhipu"
-config["backend_url"] = "https://open.bigmodel.cn/api/coding/paas/v4"
-config["deep_think_llm"] = "GLM-5.1"
-config["quick_think_llm"] = "GLM-5.1"
+config["llm_provider"] = "shared"
+config["backend_url"] = ""
+config["deep_think_llm"] = "gpt-5.5"
+config["quick_think_llm"] = "gpt-5.5"
 config["max_debate_rounds"] = 1  # 增加辩论轮数
 
 # 配置数据供应商（A 股模式统一使用 AkShare）

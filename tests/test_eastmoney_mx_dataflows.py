@@ -157,6 +157,33 @@ class EastmoneyMXDataflowTests(unittest.TestCase):
 
         self.assertTrue(runtime_config["allow_vendor_fallback"])
 
+    def test_build_runtime_config_normalizes_legacy_vendor_last_config(self):
+        with patch(
+            "tradingagents.default_config.load_last_config",
+            return_value={
+                "llm_provider": "legacy-provider",
+                "deep_think_llm": "legacy-deep-model",
+                "quick_think_llm": "legacy-quick-model",
+                "backend_url": "https://legacy-provider.invalid/v1",
+                "fallback_llm_provider": "legacy-fallback-provider",
+                "fallback_deep_think_llm": "legacy-fallback-deep",
+                "fallback_quick_think_llm": "legacy-fallback-quick",
+                "fallback_backend_url": "https://legacy-fallback.invalid/v1",
+            },
+        ):
+            runtime_config = build_runtime_config()
+
+        self.assertEqual(runtime_config["llm_provider"], "shared")
+        self.assertEqual(runtime_config["deep_think_llm"], "gpt-5.5")
+        self.assertEqual(runtime_config["quick_think_llm"], "gpt-5.5")
+        self.assertEqual(runtime_config["backend_url"], "")
+        self.assertEqual(runtime_config["fallback_llm_provider"], "")
+        self.assertEqual(runtime_config["fallback_deep_think_llm"], "")
+        self.assertEqual(runtime_config["fallback_quick_think_llm"], "")
+        self.assertEqual(runtime_config["fallback_backend_url"], "")
+        self.assertEqual(runtime_config["openai_reasoning_effort"], "xhigh")
+        self.assertEqual(runtime_config["timeout"], 300)
+
 
 if __name__ == "__main__":
     unittest.main()
